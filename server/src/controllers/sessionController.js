@@ -233,16 +233,30 @@ exports.getSessionStats = async (req, res) => {
   }
 };
 
+const Assessment = require('../models/Assessment');
+
 // @desc    Get curriculum mastery progress across all academic subjects
 // @route   GET /api/sessions/curriculum
 // @access  Private
 exports.getCurriculumProgress = async (req, res) => {
   try {
     const userId = req.session.userId;
-    const completedSessions = await SessionHistory.find({ user: userId, status: 'completed' });
+    const [completedSessions, completedAssessments] = await Promise.all([
+      SessionHistory.find({ user: userId, status: 'completed' }),
+      Assessment.find({ user: userId, status: 'completed' })
+    ]);
 
     let totalCatalogTopics = 0;
     let totalUniqueCompleted = 0;
+    let totalUniqueMastered = 0;
+
+    // Map latest assessment per topic
+    const assessmentByTopic = {};
+    completedAssessments.forEach(a => {
+      if (!assessmentByTopic[a.topic] || new Date(a.completedAt) > new Date(assessmentByTopic[a.topic].completedAt)) {
+        assessmentByTopic[a.topic] = a;
+      }
+    });
 
     const subjectsProgress = CURRICULUM_CATALOG.map(cat => {
       const subjectSessions = completedSessions.filter(s => s.subject.toLowerCase() === cat.subject.toLowerCase());
@@ -255,6 +269,39 @@ exports.getCurriculumProgress = async (req, res) => {
 
       const totalDurationSeconds = subjectSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
       const totalDurationMinutes = Math.round(totalDurationSeconds / 60);
+
+      // Detailed topic breakdown with assessment evidence
+      const topicDetails = cat.topics.map(tName => {
+        const isStudied = completedTopicsSet.has(tName);
+        const assessment = assessmentByTopic[tName];
+        let topicStatus = 'Not Started';
+        let assessmentScore = null;
+
+        if (assessment) {
+          assessmentScore = assessment.percentageScore;
+          if (assessmentScore >= 85) {
+            topicStatus = 'Mastered';
+          } else if (assessmentScore >= 60) {
+            topicStatus = 'Proficient';
+          } else {
+            topicStatus = 'In Progress';
+          }
+        } else if (isStudied) {
+          topicStatus = 'Studied';
+        }
+
+        if (topicStatus === 'Mastered') {
+          totalUniqueMastered += 1;
+        }
+
+        return {
+          topic: tName,
+          studied: isStudied,
+          assessed: !!assessment,
+          score: assessmentScore,
+          status: topicStatus
+        };
+      });
 
       // Find next recommended topic
       const nextTopic = cat.topics.find(t => !completedTopicsSet.has(t)) || cat.topics[0];
@@ -275,6 +322,7 @@ exports.getCurriculumProgress = async (req, res) => {
         completedCount,
         completedTopics: completedTopicsList,
         allTopics: cat.topics,
+        topicDetails,
         progressPercentage,
         totalDurationMinutes,
         sessionCount: subjectSessions.length,
@@ -290,6 +338,7 @@ exports.getCurriculumProgress = async (req, res) => {
       data: {
         totalCatalogTopics,
         totalUniqueCompleted,
+        totalUniqueMastered,
         overallPercentage,
         subjects: subjectsProgress
       }

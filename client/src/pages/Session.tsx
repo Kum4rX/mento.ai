@@ -126,6 +126,8 @@ export default function Session() {
     initConversation();
   }, [conversationUrl, createConversation, navigate, subject, topic, goal, location.search]);
 
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+
   const handleEndSession = async () => {
     clearError();
     setError(null);
@@ -156,7 +158,12 @@ export default function Session() {
       console.error('Failed to end session on backend:', err);
     }
 
-    navigate('/dashboard');
+    // Display completion modal with assessment offer
+    setShowCompletionModal(true);
+  };
+
+  const handleStartAssessment = () => {
+    navigate(`/assessment?subject=${encodeURIComponent(subject)}&topic=${encodeURIComponent(topic)}&sessionId=${encodeURIComponent(activeSessionId || '')}`);
   };
 
   const handleReturnHome = () => {
@@ -437,6 +444,76 @@ export default function Session() {
           </motion.div>
         )}
       </div>
+
+      {/* Session Complete Celebratory Modal */}
+      {showCompletionModal && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="max-w-lg w-full p-6 sm:p-8 rounded-3xl glass border border-border/60 shadow-2xl space-y-6 text-center"
+          >
+            <div className="w-16 h-16 rounded-3xl bg-green-500/10 text-green-500 flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle2 className="w-9 h-9" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-mentor-primary/10 text-mentor-primary text-xs font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Session Saved</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+                Session Complete 🎉
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Great job completing your personalized tutoring session on <strong className="text-foreground">{subject}</strong>: <span className="text-mentor-primary font-medium">{topic}</span>.
+              </p>
+            </div>
+
+            {/* Session Stats Banner */}
+            <div className="p-4 rounded-2xl bg-card border border-border/50 flex items-center justify-around text-center">
+              <div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Duration</p>
+                <p className="text-lg font-bold text-foreground mt-0.5">{formatTimer(elapsedSeconds)}</p>
+              </div>
+              <div className="h-8 w-px bg-border/60" />
+              <div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Status</p>
+                <p className="text-sm font-bold text-green-600 dark:text-green-400 mt-0.5">Recorded</p>
+              </div>
+            </div>
+
+            {/* Assessment Offer Callout */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-mentor-primary/10 via-mentor-secondary/10 to-transparent border border-mentor-primary/20 text-left space-y-1.5">
+              <div className="flex items-center gap-2 text-mentor-primary font-bold text-sm">
+                <Award className="w-4 h-4" />
+                <span>Verify Your Understanding</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Take a quick 5-question AI Knowledge Check to test your conceptual clarity, verify topic mastery, and refine future tutor guidance.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={handleReturnHome}
+                className="w-full sm:w-auto rounded-full px-5 order-2 sm:order-1 border-border/80 text-xs"
+              >
+                Skip to Dashboard
+              </Button>
+              <Button
+                onClick={handleStartAssessment}
+                className="w-full sm:w-auto rounded-full px-6 bg-gradient-to-r from-mentor-primary to-mentor-secondary text-white font-bold shadow-lg order-1 sm:order-2 text-xs"
+              >
+                <Award className="w-4 h-4 mr-1.5" />
+                Start Knowledge Check
+                <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

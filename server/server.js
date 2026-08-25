@@ -6,10 +6,12 @@ const connectMongo = require('connect-mongo');
 const MongoStore = connectMongo.MongoStore || connectMongo;
 const config = require('./config');
 const connectDB = require('./src/config/db');
-const authRoutes = require('./src/routes/authRoutes');
-const sessionRoutes = require('./src/routes/sessionRoutes');
 const User = require('./src/models/User');
 const SessionHistory = require('./src/models/SessionHistory');
+const Assessment = require('./src/models/Assessment');
+const authRoutes = require('./src/routes/authRoutes');
+const sessionRoutes = require('./src/routes/sessionRoutes');
+const assessmentRoutes = require('./src/routes/assessmentRoutes');
 const { requireAuth: authenticate } = require('./src/middlewares/authMiddleware');
 
 const app = express();
@@ -92,6 +94,7 @@ app.use((req, res, next) => {
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/assessments', assessmentRoutes);
 
 // Tavus API client
 const tavusApi = axios.create({
@@ -123,6 +126,7 @@ if (process.env.NODE_ENV === 'development') {
     (response) => {
       console.log('Tavus API Response:', {
         status: response.status,
+        statusText: response.statusText,
         data: response.data
       });
       return response;
@@ -130,6 +134,7 @@ if (process.env.NODE_ENV === 'development') {
     (error) => {
       console.error('Tavus API Response Error:', {
         status: error.response?.status,
+        statusText: error.response?.statusText,
         data: error.response?.data,
         message: error.message
       });
@@ -139,44 +144,37 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
-// Debug endpoint to check current configuration
-app.get('/api/debug/config', (req, res) => {
+// Root/Health route
+app.get('/', (req, res) => {
   res.json({
-    environment: process.env.NODE_ENV,
-    tavusApiUrl: config.tavusApiUrl,
-    replicaId: config.replicaId,
-    defaultPersonaId: config.defaultPersonaId,
-    apiKeySource: process.env.TAVUS_API_KEY ? 'environment' : 'fallback',
-    apiKeyLength: config.tavusApiKey ? config.tavusApiKey.length : 0,
-    apiKeyPreview: config.tavusApiKey ? `${config.tavusApiKey.substring(0, 8)}...` : null,
-    hasValidConfig: !!(config.tavusApiKey && config.replicaId)
+    status: 'ok',
+    service: 'mento.ai-backend',
+    version: '1.0.0',
+    authenticated: !!req.session?.userId
   });
 });
 
-// Health check for Tavus API
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    authenticated: !!req.session?.userId,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Tavus health check
 app.get('/api/tavus/health', authenticate, async (req, res) => {
   try {
-    console.log('=== DEBUG: Tavus API Configuration ===');
-    console.log('Environment:', process.env.NODE_ENV);
-    console.log('API Key Source:', process.env.TAVUS_API_KEY ? 'Environment Variable' : 'Hardcoded Fallback');
-    console.log('API Key Preview:', config.tavusApiKey ? `${config.tavusApiKey.substring(0, 8)}...` : 'None');
-    console.log('Replica ID:', config.replicaId);
-    console.log('API URL:', config.tavusApiUrl);
-    console.log('=====================================');
-    
-    const response = await tavusApi.get(`/replicas/${config.replicaId}`);
-    
+    const response = await tavusApi.get('/replicas');
     res.json({
       status: 'ok',
       tavusConnected: true,
-      replicaId: config.replicaId,
-      replicaStatus: response.data?.status,
-      replicaName: response.data?.replica_name,
+      replicasCount: response.data?.data?.length || 0,
       debug: {
+        replicaId: config.replicaId,
+        hasApiKey: !!config.tavusApiKey,
         apiKeySource: process.env.TAVUS_API_KEY ? 'env' : 'fallback',
         apiKeyLength: config.tavusApiKey ? config.tavusApiKey.length : 0
       }
@@ -224,20 +222,25 @@ app.post('/api/tavus/conversation', authenticate, async (req, res) => {
     const { personaId, subject, topic, customGoal } = req.body;
     const payload = { replica_id: config.replicaId };
     
-    // Fetch authenticated student's name and completed learning history
+    // Fetch authenticated student's name, completed learning history, and assessment performance
     let studentName = 'Student';
     let pastSessions = [];
+    let pastAssessments = [];
     if (req.session.userId) {
       try {
-        const [user, sessions] = await Promise.all([
+        const [user, sessions, assessments] = await Promise.all([
           User.findById(req.session.userId),
-          SessionHistory.find({ user: req.session.userId, status: 'completed' }).sort({ endedAt: -1 })
+          SessionHistory.find({ user: req.session.userId, status: 'completed' }).sort({ endedAt: -1 }),
+          Assessment.find({ user: req.session.userId, status: 'completed' }).sort({ completedAt: -1 })
         ]);
         if (user && user.name) {
           studentName = user.name.split(' ')[0]; // First name
         }
         if (sessions) {
           pastSessions = sessions;
+        }
+        if (assessments) {
+          pastAssessments = assessments;
         }
       } catch (err) {
         console.warn('Could not fetch user profile/history for conversation context:', err.message);
@@ -257,6 +260,11 @@ app.post('/api/tavus/conversation', authenticate, async (req, res) => {
     const subjectTotalMinutes = Math.round(subjectSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0) / 60);
     const previousTopicsInSubject = [...new Set(subjectSessions.map(s => s.topic))];
 
+    // Find latest assessment for this topic if available
+    const latestTopicAssessment = topic 
+      ? pastAssessments.find(a => a.topic && a.topic.toLowerCase() === topic.toLowerCase())
+      : null;
+
     // Build Student Learning Profile
     let studentProfile = `${studentName} is `;
     if (subjectSessionCount === 0) {
@@ -267,9 +275,15 @@ app.post('/api/tavus/conversation', authenticate, async (req, res) => {
       studentProfile += `a continuing student in ${subject} who has previously studied: [${previousTopicsInSubject.slice(0, 4).join(', ')}] (${subjectSessionCount} prior session${subjectSessionCount > 1 ? 's' : ''}, ${subjectTotalMinutes} mins total). Today is their first session on "${topic}".`;
     }
 
+    if (latestTopicAssessment) {
+      studentProfile += ` In their latest knowledge check on "${topic}", they scored ${latestTopicAssessment.percentageScore}% (${latestTopicAssessment.masteryStatus}).`;
+    }
+
     // Build Adaptive Pedagogical Strategy
     let pedagogicalStrategy = '';
-    if (isReturningTopic) {
+    if (latestTopicAssessment && latestTopicAssessment.needsPractice && latestTopicAssessment.needsPractice.length > 0) {
+      pedagogicalStrategy = `In the previous assessment, the student had difficulty with: ${latestTopicAssessment.needsPractice.join('; ')}. Focus on reinforcing these specific concepts with intuitive analogies, step-by-step guidance, and check-in questions.`;
+    } else if (isReturningTopic) {
       pedagogicalStrategy = `Since ${studentName} has studied "${topic}" before, build directly upon their previous knowledge. Focus on deeper nuances, problem-solving, resolving any lingering doubts or misconceptions, and applying the concept in new contexts.`;
     } else if (subjectSessionCount > 0) {
       pedagogicalStrategy = `Bridge "${topic}" with the foundational concepts they previously learned in ${previousTopicsInSubject.slice(0, 2).join(' and ')}. Guide them step-by-step through the new principles.`;

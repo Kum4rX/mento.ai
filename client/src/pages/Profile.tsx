@@ -2,21 +2,20 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
-  User as UserIcon, 
   Mail, 
   Clock, 
   Award, 
   BookOpen, 
   GraduationCap, 
-  Sparkles, 
   CheckCircle2, 
   Target,
-  ArrowRight
+  ArrowRight,
+  TrendingUp,
+  AlertCircle,
+  HelpCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/utils/api';
@@ -31,6 +30,14 @@ interface SessionStats {
   subjectCounts: Record<string, number>;
 }
 
+interface TopicDetail {
+  topic: string;
+  studied: boolean;
+  assessed: boolean;
+  score: number | null;
+  status: string;
+}
+
 interface SubjectCurriculum {
   subject: string;
   description: string;
@@ -38,6 +45,7 @@ interface SubjectCurriculum {
   completedCount: number;
   completedTopics: string[];
   allTopics: string[];
+  topicDetails?: TopicDetail[];
   progressPercentage: number;
   totalDurationMinutes: number;
   sessionCount: number;
@@ -48,8 +56,17 @@ interface SubjectCurriculum {
 interface CurriculumData {
   totalCatalogTopics: number;
   totalUniqueCompleted: number;
+  totalUniqueMastered?: number;
   overallPercentage: number;
   subjects: SubjectCurriculum[];
+}
+
+interface AssessmentStats {
+  totalAssessments: number;
+  averageScore: number;
+  masteredTopicsCount: number;
+  strongestSubjects: Array<{ subject: string; avgScore: number; count: number }>;
+  needsPracticeTopics: Array<{ subject: string; topic: string; score: number }>;
 }
 
 export default function Profile() {
@@ -64,15 +81,17 @@ export default function Profile() {
     subjectCounts: {}
   });
   const [curriculum, setCurriculum] = useState<CurriculumData | null>(null);
+  const [assessmentStats, setAssessmentStats] = useState<AssessmentStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProfileData = async () => {
       try {
         setLoading(true);
-        const [statsRes, curriculumRes] = await Promise.all([
+        const [statsRes, curriculumRes, assessStatsRes] = await Promise.all([
           api.get('/sessions/stats').catch(() => ({ data: { data: null } })),
-          api.get('/sessions/curriculum').catch(() => ({ data: { data: null } }))
+          api.get('/sessions/curriculum').catch(() => ({ data: { data: null } })),
+          api.get('/assessments/stats').catch(() => ({ data: { data: null } }))
         ]);
 
         if (statsRes.data?.data) {
@@ -80,6 +99,9 @@ export default function Profile() {
         }
         if (curriculumRes.data?.data) {
           setCurriculum(curriculumRes.data.data);
+        }
+        if (assessStatsRes.data?.data) {
+          setAssessmentStats(assessStatsRes.data.data);
         }
       } catch (err) {
         console.error('Error fetching profile data:', err);
@@ -189,9 +211,13 @@ export default function Profile() {
           <Card className="glass border-border/40 rounded-2xl shadow-sm">
             <CardContent className="p-5 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Curriculum Mastery</p>
-                <p className="text-2xl font-extrabold text-foreground mt-1">{curriculum ? `${curriculum.overallPercentage}%` : '0%'}</p>
-                <p className="text-[11px] text-green-500 font-medium">Verified by AI Tutor</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Knowledge Score</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1">
+                  {assessmentStats && assessmentStats.totalAssessments > 0 ? `${assessmentStats.averageScore}%` : 'N/A'}
+                </p>
+                <p className="text-[11px] text-green-500 font-medium">
+                  {assessmentStats?.totalAssessments || 0} checks completed
+                </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                 <Award className="w-5 h-5" />
@@ -199,6 +225,88 @@ export default function Profile() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Phase 5 Learning Assessment Overview */}
+        {assessmentStats && assessmentStats.totalAssessments > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+          >
+            <Card className="glass border-border/40 rounded-3xl shadow-sm">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-mentor-primary" />
+                  <CardTitle className="text-xl">Learning Assessment Overview</CardTitle>
+                </div>
+                <CardDescription>
+                  Verified comprehension analytics based on your AI knowledge checks
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Strongest Subjects */}
+                  <div className="p-4 rounded-2xl bg-card border border-border/50 space-y-3 shadow-sm">
+                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-semibold text-sm">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Strongest Subjects</span>
+                    </div>
+                    {assessmentStats.strongestSubjects.length > 0 ? (
+                      <div className="space-y-2">
+                        {assessmentStats.strongestSubjects.map((sub) => (
+                          <div key={sub.subject} className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-muted/40 border border-border/30">
+                            <span className="font-bold text-foreground">{sub.subject}</span>
+                            <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30 text-xs font-bold">
+                              {sub.avgScore}% avg ({sub.count} checks)
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">Complete more checks to track subject rankings.</p>
+                    )}
+                  </div>
+
+                  {/* Topics Needing Practice */}
+                  <div className="p-4 rounded-2xl bg-card border border-border/50 space-y-3 shadow-sm">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-semibold text-sm">
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Topics Needing Practice (&lt; 70%)</span>
+                    </div>
+                    {assessmentStats.needsPracticeTopics.length > 0 ? (
+                      <div className="space-y-2">
+                        {assessmentStats.needsPracticeTopics.map((item) => (
+                          <div key={item.topic} className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                            <div>
+                              <span className="font-bold text-foreground block">{item.topic}</span>
+                              <span className="text-[10px] text-muted-foreground">{item.subject}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs font-bold">
+                                {item.score}%
+                              </Badge>
+                              <button
+                                onClick={() => navigate(`/assessment?subject=${encodeURIComponent(item.subject)}&topic=${encodeURIComponent(item.topic)}`)}
+                                className="text-xs text-mentor-primary font-semibold hover:underline"
+                              >
+                                Retest →
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs text-green-600 p-3 rounded-xl bg-green-500/5 border border-green-500/20">
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        <span>All tested topics meet proficiency standards!</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Detailed Curriculum Progress Overview */}
         {curriculum && (

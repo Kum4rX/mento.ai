@@ -11,6 +11,7 @@ import Session from "./pages/Session";
 import Dashboard from "./pages/Dashboard";
 import Library from "./pages/Library";
 import Profile from "./pages/Profile";
+import Assessment from "./pages/Assessment";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
@@ -81,6 +82,7 @@ const App = () => (
                     } />
                     <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                     <Route path="/library" element={<ProtectedRoute><Library /></ProtectedRoute>} />
+                    <Route path="/assessment" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
                     <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                     <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
