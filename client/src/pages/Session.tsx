@@ -1,43 +1,83 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, AlertCircle, Loader2, Mic, MicOff, Video, VideoOff, MessageSquare, Settings, PhoneOff, BookOpen, Lightbulb, Target } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  AlertCircle, 
+  Loader2, 
+  Mic, 
+  MicOff, 
+  Video, 
+  VideoOff, 
+  PhoneOff, 
+  BookOpen, 
+  Lightbulb, 
+  Target,
+  Clock,
+  Sparkles,
+  HelpCircle,
+  GraduationCap,
+  MessageSquareQuote,
+  CheckCircle2,
+  Share2
+} from 'lucide-react';
 import { useTavus } from '@/contexts/TavusContext';
-import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useState, useRef } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { motion, AnimatePresence } from 'framer-motion';
 import { tavusService } from '@/services/tavusService';
-
-const fadeIn = {
-  hidden: { opacity: 0 },
-  visible: { 
-    opacity: 1,
-    transition: { duration: 0.3 }
-  },
-  exit: { opacity: 0 }
-};
+import { api } from '@/utils/api';
 
 export default function Session() {
   const location = useLocation();
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(location.search);
   const conversationUrl = searchParams.get('url');
+  
+  // Intelligent Learning Context parameters
+  const subject = searchParams.get('subject') || 'General Science';
+  const topic = searchParams.get('topic') || 'Concept Exploration';
+  const goal = searchParams.get('goal') || '';
+
   const { createConversation, clearError } = useTavus();
+  const { user } = useAuth();
+
   const [loading, setLoading] = useState(!conversationUrl);
   const [error, setError] = useState<string | null>(null);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showChat, setShowChat] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Live Timer
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const formatTimer = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Clear any existing errors when component mounts
   useEffect(() => {
     clearError();
     return () => {
-      // Cleanup when component unmounts
       clearError();
     };
   }, [clearError]);
 
+  // Initialize Conversation with Intelligent Context
   useEffect(() => {
     const initConversation = async () => {
       if (conversationUrl) return;
@@ -45,10 +85,37 @@ export default function Session() {
       try {
         setLoading(true);
         setError(null);
-        const { conversation_url } = await createConversation();
-        navigate(`/session?url=${encodeURIComponent(conversation_url)}`, { replace: true });
+
+        // 1. Create Tavus conversation with pedagogical context
+        const response = await createConversation({
+          subject,
+          topic,
+          customGoal: goal
+        });
+
+        const newUrl = response.conversation_url;
+        const newId = response.conversation_id;
+
+        // 2. Record Session in MongoDB
+        try {
+          const sessionStartRes = await api.post('/sessions/start', {
+            subject,
+            topic,
+            customGoal: goal,
+            conversationId: newId
+          });
+          if (sessionStartRes.data?.data?._id) {
+            setActiveSessionId(sessionStartRes.data.data._id);
+          }
+        } catch (dbErr) {
+          console.warn('Could not record session in database:', dbErr);
+        }
+
+        const params = new URLSearchParams(location.search);
+        params.set('url', newUrl);
+        navigate(`/session?${params.toString()}`, { replace: true });
       } catch (err) {
-        console.error('Failed to start conversation:', err);
+        console.error('Failed to start contextual conversation:', err);
         const errorMessage = err instanceof Error ? err.message : 'Failed to initialize video session. Please try again.';
         setError(errorMessage);
       } finally {
@@ -57,68 +124,85 @@ export default function Session() {
     };
 
     initConversation();
-  }, [conversationUrl, createConversation, navigate]);
+  }, [conversationUrl, createConversation, navigate, subject, topic, goal, location.search]);
 
   const handleEndSession = async () => {
-    // Clear any errors before navigating
     clearError();
     setError(null);
+
+    // Complete session in MongoDB
+    if (activeSessionId) {
+      try {
+        await api.post(`/sessions/${activeSessionId}/end`, {
+          durationSeconds: elapsedSeconds
+        });
+      } catch (err) {
+        console.warn('Could not complete session record in DB:', err);
+      }
+    }
+
     try {
-      // Extract conversation_id from the conversationUrl (e.g., https://tavus.daily.co/c123456)
       let conversationId = null;
       if (conversationUrl) {
-        // Try to extract the last path segment as the conversation_id
         const match = conversationUrl.match(/([a-zA-Z0-9]+)$/);
         if (match) {
           conversationId = match[1];
         }
       }
       if (conversationId) {
-        // Call backend API to end the conversation securely
         await tavusService.endConversation(conversationId);
       }
     } catch (err) {
-      // Optionally log or show error, but still navigate home
       console.error('Failed to end session on backend:', err);
     }
-    navigate('/');
+
+    navigate('/dashboard');
   };
 
   const handleReturnHome = () => {
-    // Clear any errors before navigating
     clearError();
     setError(null);
-    navigate('/');
+    navigate('/dashboard');
   };
+
+  // Suggested doubts to ask the AI tutor
+  const doubtSuggestions = [
+    `Can you give me an intuitive real-world analogy for ${topic}?`,
+    `What are the most common misconceptions students have about this?`,
+    `Can we solve a step-by-step example problem together?`,
+    `How does ${topic} connect to practical applications?`
+  ];
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-mentor-surface">
+      <div className="min-h-[85vh] flex items-center justify-center bg-mentor-surface p-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center space-y-6"
+          className="text-center space-y-6 max-w-md p-8 rounded-3xl glass border border-border/50 shadow-xl"
         >
-          <div className="relative">
-            <Loader2 className="w-16 h-16 mx-auto animate-spin text-mentor-primary" />
-            <div className="absolute inset-0 bg-gradient-to-r from-mentor-primary to-mentor-secondary rounded-full blur opacity-20"></div>
+          <div className="relative mx-auto w-16 h-16">
+            <Loader2 className="w-16 h-16 animate-spin text-mentor-primary" />
+            <div className="absolute inset-0 bg-gradient-to-r from-mentor-primary to-mentor-secondary rounded-full blur opacity-30"></div>
           </div>
-          <motion.h2 
-            className="text-2xl font-semibold"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-          >
-            Setting up your learning session...
-          </motion.h2>
-          <motion.p 
-            className="text-muted-foreground"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6 }}
-          >
-            Preparing your AI teacher. This may take a moment.
-          </motion.p>
+          
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-mentor-primary/10 text-mentor-primary text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Configuring Learning Context</span>
+            </div>
+            <h2 className="text-2xl font-bold text-foreground">
+              Preparing Your AI Tutor
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Connecting teacher replica for <strong className="text-foreground">{subject}</strong>: <span className="text-mentor-primary">{topic}</span>.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-muted/40 border border-border/40 text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <GraduationCap className="w-4 h-4 text-mentor-primary" />
+            <span>Personalized for {user?.name || 'Student'}</span>
+          </div>
         </motion.div>
       </div>
     );
@@ -126,36 +210,46 @@ export default function Session() {
 
   if (error || !conversationUrl) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-mentor-surface p-4">
+      <div className="min-h-[85vh] flex items-center justify-center bg-mentor-surface p-4">
         <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
+          initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md"
+          className="w-full max-w-lg"
         >
-          <Alert variant="destructive" className="relative overflow-hidden">
-            <div className="absolute -top-4 -right-4 w-24 h-24 bg-red-500/10 rounded-full blur-3xl"></div>
-            <AlertCircle className="h-5 w-5" />
-            <AlertTitle className="text-lg">Connection Error</AlertTitle>
-            <AlertDescription className="mt-2">
-              {error || 'Failed to load the learning session. Please check your connection and try again.'}
-            </AlertDescription>
-            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          <Alert variant="destructive" className="relative overflow-hidden rounded-3xl p-6 sm:p-8 shadow-xl border-destructive/30">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-destructive/10 text-destructive flex-shrink-0">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <div className="space-y-2 flex-1">
+                <AlertTitle className="text-xl font-bold">Session Notice</AlertTitle>
+                <AlertDescription className="text-sm leading-relaxed">
+                  {error || 'Unable to connect to the live video stream. Third-party Tavus conversation API credits may be temporarily exhausted, but your contextual learning module is ready.'}
+                </AlertDescription>
+                
+                {/* Context Recap */}
+                <div className="mt-4 p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-xs space-y-1">
+                  <p><strong>Configured Subject:</strong> {subject}</p>
+                  <p><strong>Configured Topic:</strong> {topic}</p>
+                  {goal && <p><strong>Specific Doubt:</strong> {goal}</p>}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 pt-4 border-t border-destructive/20">
               <Button 
                 variant="outline" 
-                onClick={() => {
-                  setError(null);
-                  window.location.reload();
-                }}
-                className="flex-1"
+                onClick={() => window.location.reload()}
+                className="flex-1 rounded-xl"
               >
-                Try Again
+                Retry Connection
               </Button>
               <Button 
-                variant="ghost"
+                variant="default"
                 onClick={handleReturnHome}
-                className="flex-1"
+                className="flex-1 rounded-xl bg-destructive text-white hover:bg-destructive/90"
               >
-                Return Home
+                Back to Dashboard
               </Button>
             </div>
           </Alert>
@@ -165,232 +259,183 @@ export default function Session() {
   }
 
   return (
-    <div className="min-h-screen bg-mentor-surface flex flex-col">
-      {/* Header */}
-      <header className="bg-white/5 border-b border-white/10">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+    <div className="min-h-[90vh] bg-mentor-surface flex flex-col p-3 sm:p-6 max-w-7xl mx-auto w-full space-y-4">
+      {/* Top Intelligent Context Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl glass border border-border/50 shadow-sm">
+        <div className="flex items-center gap-3">
           <Button 
             variant="ghost" 
+            size="sm"
             onClick={handleReturnHome}
-            className="text-muted-foreground hover:text-foreground group"
+            className="rounded-xl text-muted-foreground hover:text-foreground h-9"
           >
-            <ArrowLeft className="w-5 h-5 mr-2 group-hover:-translate-x-1 transition-transform" />
-            Back to Home
+            <ArrowLeft className="w-4 h-4 mr-1.5" />
+            Dashboard
           </Button>
-          
-          <div className="flex items-center space-x-2">
-            <div className="h-2.5 w-2.5 rounded-full bg-green-500 animate-pulse"></div>
-            <span className="text-sm text-muted-foreground">Live</span>
+
+          <div className="h-6 w-[1px] bg-border/60 hidden sm:block" />
+
+          {/* Context Details */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-3 py-1 rounded-full bg-mentor-primary/10 text-mentor-primary text-xs font-bold uppercase tracking-wider">
+              {subject}
+            </span>
+            <span className="font-semibold text-sm sm:text-base text-foreground">
+              {topic}
+            </span>
+            {goal && (
+              <span className="text-xs text-muted-foreground italic hidden lg:inline">
+                ("{goal}")
+              </span>
+            )}
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        <div className="container mx-auto px-4 py-6 flex-1 flex flex-col">
-          <div className="relative flex-1 rounded-2xl overflow-hidden bg-black/20 border border-white/10 max-h-[70vh]" >
-            {/* Video Container */}
-            <div className="absolute inset-0">
-              <iframe
-                src={conversationUrl}
-                className="w-full h-full"
-                allow="camera; microphone; fullscreen; display-capture"
-                allowFullScreen
-                title="AI Learning Session"
-                onError={() => {
-                  setError('Failed to load video session');
-                }}
-              />
+        {/* Live Timer & Controls */}
+        <div className="flex items-center gap-3 self-end md:self-auto">
+          {/* Live Clock */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted border border-border/50 text-xs font-mono font-medium text-foreground">
+            <Clock className="w-3.5 h-3.5 text-mentor-primary animate-pulse" />
+            <span>{formatTimer(elapsedSeconds)}</span>
+          </div>
+
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-medium border border-green-500/20">
+            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+            <span>Live Session</span>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowNotes(!showNotes)}
+            className="rounded-full text-xs h-8 gap-1.5"
+          >
+            <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+            <span>Doubt Prompts</span>
+          </Button>
+
+          <Button 
+            variant="destructive"
+            size="sm"
+            onClick={handleEndSession}
+            className="rounded-full text-xs font-semibold h-8 gap-1.5 shadow-sm"
+          >
+            <PhoneOff className="w-3.5 h-3.5" />
+            <span>End Session</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Video & Interactive Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1">
+        {/* Video Call Screen */}
+        <div className={`relative rounded-3xl overflow-hidden bg-black/40 border border-border/50 shadow-lg min-h-[500px] flex flex-col justify-between ${showNotes ? 'lg:col-span-3' : 'lg:col-span-4'}`}>
+          {/* Daily.co WebRTC Frame */}
+          <div className="absolute inset-0">
+            <iframe
+              src={conversationUrl}
+              className="w-full h-full border-0"
+              allow="camera; microphone; fullscreen; display-capture; autoplay"
+              allowFullScreen
+              title={`mento.ai session on ${subject}: ${topic}`}
+              onError={() => setError('Failed to load video session')}
+            />
+          </div>
+
+          {/* Top Floating Badge */}
+          <div className="relative z-10 p-4 flex justify-between items-start pointer-events-none">
+            <div className="px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs flex items-center gap-2 pointer-events-auto">
+              <GraduationCap className="w-4 h-4 text-mentor-secondary" />
+              <span>AI Tutor: <strong>mento.ai Phoenix-3</strong></span>
             </div>
+          </div>
 
-            {/* Educational Quick Actions */}
-            <div className="absolute top-4 left-4 flex flex-col space-y-2">
-              <Button 
-                variant="secondary" 
-                size="sm"
-                className="bg-white/10 backdrop-blur-sm text-white hover:bg-white/20"
-              >
-                <BookOpen className="w-4 h-4 mr-2" />
-                Study Mode
-              </Button>
-              <Button 
-                variant="secondary" 
-                size="sm"
-                className="bg-white/10 backdrop-blur-sm text-white hover:bg-white/20"
-              >
-                <Lightbulb className="w-4 h-4 mr-2" />
-                Ask Question
-              </Button>
-              <Button 
-                variant="secondary" 
-                size="sm"
-                className="bg-white/10 backdrop-blur-sm text-white hover:bg-white/20"
-              >
-                <Target className="w-4 h-4 mr-2" />
-                Whiteboard
-              </Button>
-            </div>
+          {/* Bottom Call Bar */}
+          <div className="relative z-10 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-center gap-4">
+            <Button 
+              variant={isMicOn ? "secondary" : "destructive"} 
+              size="icon"
+              onClick={() => setIsMicOn(!isMicOn)}
+              className="rounded-full w-11 h-11 shadow-lg"
+              title={isMicOn ? "Mute Microphone" : "Unmute Microphone"}
+            >
+              {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            </Button>
+            
+            <Button 
+              variant={isVideoOn ? "secondary" : "destructive"} 
+              size="icon"
+              onClick={() => setIsVideoOn(!isVideoOn)}
+              className="rounded-full w-11 h-11 shadow-lg"
+              title={isVideoOn ? "Turn Camera Off" : "Turn Camera On"}
+            >
+              {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            </Button>
 
-            {/* Overlay Controls */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
-              <div className="flex justify-center space-x-4">
-                <Button 
-                  variant={isMicOn ? "secondary" : "destructive"} 
-                  size="icon"
-                  onClick={() => setIsMicOn(!isMicOn)}
-                  className="rounded-full w-12 h-12"
+            <Button 
+              variant="destructive"
+              onClick={handleEndSession}
+              className="rounded-full px-6 py-2 h-11 font-semibold flex items-center gap-2 shadow-lg"
+            >
+              <PhoneOff className="w-4 h-4" />
+              <span>End & Save Session</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Doubt Prompts & Topic Guide Sidebar */}
+        {showNotes && (
+          <motion.div
+            className="lg:col-span-1 glass rounded-3xl p-5 border border-border/50 shadow-md flex flex-col justify-between space-y-4"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-border/40">
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4 text-amber-500" />
+                  <h4 className="font-bold text-sm text-foreground">Topic Quick Doubts</h4>
+                </div>
+                <button
+                  onClick={() => setShowNotes(false)}
+                  className="text-muted-foreground hover:text-foreground text-xs"
                 >
-                  {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-                </Button>
-                
-                <Button 
-                  variant={isVideoOn ? "secondary" : "destructive"} 
-                  size="icon"
-                  onClick={() => setIsVideoOn(!isVideoOn)}
-                  className="rounded-full w-12 h-12"
-                >
-                  {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                </Button>
-                
-                <Button 
-                  variant="secondary" 
-                  size="icon"
-                  onClick={() => setShowChat(!showChat)}
-                  className={`rounded-full w-12 h-12 ${showChat ? 'bg-mentor-primary/20 text-mentor-primary' : ''}`}
-                >
-                  <MessageSquare className="w-5 h-5" />
-                </Button>
-                
-                <Button 
-                  variant="secondary" 
-                  size="icon"
-                  onClick={() => setShowSettings(!showSettings)}
-                  className={`rounded-full w-12 h-12 ${showSettings ? 'bg-mentor-primary/20 text-mentor-primary' : ''}`}
-                >
-                  <Settings className="w-5 h-5" />
-                </Button>
-                
-                <Button 
-                  variant="destructive" 
-                  className="rounded-full px-6 h-12 ml-2 group"
-                  onClick={handleEndSession}
-                >
-                  <PhoneOff className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform" />
-                  End Session
-                </Button>
+                  Close
+                </button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Speak these questions to your tutor for instant step-by-step doubt clarification:
+              </p>
+
+              <div className="space-y-2.5">
+                {doubtSuggestions.map((prompt, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-card border border-border/60 hover:border-mentor-primary/40 text-xs text-foreground space-y-1 shadow-sm transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 text-mentor-primary font-semibold">
+                      <MessageSquareQuote className="w-3.5 h-3.5" />
+                      <span>Prompt {idx + 1}</span>
+                    </div>
+                    <p className="text-muted-foreground font-normal leading-relaxed">
+                      "{prompt}"
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Chat Panel */}
-            <AnimatePresence>
-              {showChat && (
-                <motion.div
-                  initial={{ x: '100%' }}
-                  animate={{ x: 0 }}
-                  exit={{ x: '100%' }}
-                  transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                  className="absolute top-4 right-4 bottom-20 w-80 bg-white rounded-xl shadow-xl overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700 dark:bg-gray-800"
-                >
-                  <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Chat with mento.ai</h3>
-                  </div>
-                  <div className="flex-1 p-4 overflow-y-auto bg-white dark:bg-gray-800">
-                    <div className="space-y-4">
-                      <div className="flex justify-start">
-                        <div className="max-w-xs bg-mentor-primary/90 text-white p-3 rounded-2xl rounded-tl-none shadow-sm">
-                          <p className="text-sm">Hello! I'm mento.ai, your AI teacher. What would you like to learn today?</p>
-                          <span className="text-xs text-white/80 block mt-1">Just now</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Ask a question or request help..."
-                        className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-full py-3 px-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-mentor-primary/50 focus:border-transparent"
-                      />
-                      <button className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-mentor-primary hover:text-mentor-primary/80">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="m22 2-7 20-4-9-9-4Z"/>
-                          <path d="M22 2 11 13"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Settings Panel */}
-            <AnimatePresence>
-              {showSettings && !showChat && (
-                <motion.div
-                  initial={{ x: '100%' }}
-                  animate={{ x: 0 }}
-                  exit={{ x: '100%' }}
-                  transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                  className="absolute top-4 right-4 bottom-20 w-80 bg-white/5 backdrop-blur-lg rounded-xl border border-white/10 overflow-hidden flex flex-col p-4 space-y-4"
-                >
-                  <h3 className="font-medium">Settings</h3>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">Microphone</label>
-                    <select className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-mentor-primary/50 focus:border-transparent">
-                      <option>Default Microphone</option>
-                    </select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">Camera</label>
-                    <select className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-mentor-primary/50 focus:border-transparent">
-                      <option>Default Camera</option>
-                    </select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">Speaker</label>
-                    <select className="w-full bg-white/5 border border-white/10 rounded-lg py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-mentor-primary/50 focus:border-transparent">
-                      <option>Default Speaker</option>
-                    </select>
-                  </div>
-                  
-                  <div className="pt-2">
-                    <Button variant="outline" className="w-full">
-                      Save Settings
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-      </main>
-
-      {/* Connection Status Bar */}
-      <div className="bg-white/5 border-t border-white/10 py-2">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center space-x-2">
-              <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <span className="text-muted-foreground">Connected</span>
+            <div className="p-3 rounded-2xl bg-mentor-primary/10 border border-mentor-primary/20 text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold text-mentor-primary flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Progress Tracking Active
+              </p>
+              <p>Your session duration and {subject} mastery will be saved to your dashboard when you finish.</p>
             </div>
-            <div className="text-muted-foreground">
-              <span className="hidden sm:inline">Connection secured with end-to-end encryption</span>
-              <span className="sm:hidden">Secure connection</span>
-            </div>
-            <div className="text-muted-foreground">
-              <button className="hover:text-foreground transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                  <path d="M12 17h.01"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
+          </motion.div>
+        )}
       </div>
     </div>
   );

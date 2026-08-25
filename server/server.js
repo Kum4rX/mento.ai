@@ -6,6 +6,8 @@ const MongoStore = require('connect-mongo').MongoStore;
 const config = require('./config');
 const connectDB = require('./src/config/db');
 const authRoutes = require('./src/routes/authRoutes');
+const sessionRoutes = require('./src/routes/sessionRoutes');
+const User = require('./src/models/User');
 const { requireAuth: authenticate } = require('./src/middlewares/authMiddleware');
 
 const app = express();
@@ -61,8 +63,9 @@ app.use(session({
   }
 }));
 
-// Mount Auth Routes
+// Mount Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/sessions', sessionRoutes);
 
 // Tavus API client
 const tavusApi = axios.create({
@@ -192,25 +195,46 @@ app.get('/api/tavus/replica', authenticate, async (req, res) => {
 // Create conversation
 app.post('/api/tavus/conversation', authenticate, async (req, res) => {
   try {
-    const { personaId } = req.body;
+    const { personaId, subject, topic, customGoal } = req.body;
     const payload = { replica_id: config.replicaId };
     
+    // Fetch authenticated student's name
+    let studentName = 'Student';
+    if (req.session.userId) {
+      try {
+        const user = await User.findById(req.session.userId);
+        if (user && user.name) {
+          studentName = user.name.split(' ')[0]; // First name
+        }
+      } catch (err) {
+        console.warn('Could not fetch user name for conversation context:', err.message);
+      }
+    }
+
+    // Build Intelligent Learning Context
+    if (subject && topic) {
+      payload.conversation_name = `${subject} - ${topic} (${studentName})`;
+      payload.conversational_context = `You are mento.ai, an expert, encouraging, and highly interactive AI personal tutor teaching ${studentName}. The student is studying the subject "${subject}" with a dedicated focus on the topic "${topic}". Explain fundamental concepts clearly using intuitive real-world analogies, verify understanding with brief check questions, and guide the student step-by-step through any doubts they raise.${customGoal ? ` The student specifically wants to focus on: "${customGoal}".` : ''}`;
+      payload.custom_greeting = `Hello ${studentName}! Welcome to your mento.ai session on ${subject}. Today we are exploring ${topic}. What questions or concepts would you like to start with?`;
+    } else {
+      payload.conversation_name = `Learning Session - ${studentName}`;
+      payload.conversational_context = `You are mento.ai, an expert, patient, and encouraging personal tutor for ${studentName}. Guide the student through their learning goals and clarify any academic questions with step-by-step clarity.`;
+      payload.custom_greeting = `Hello ${studentName}! I am your mento.ai tutor. What would you like to learn or clarify today?`;
+    }
+
     // Only add persona_id if explicitly provided and not empty
     if (personaId && personaId.trim() !== '') {
       payload.persona_id = personaId;
     } else if (config.defaultPersonaId && config.defaultPersonaId.trim() !== '') {
-      // Only use default persona_id if it's a valid non-empty string
       payload.persona_id = config.defaultPersonaId;
     }
-    // If no valid persona_id is provided, Tavus will use the replica's default persona
 
-    console.log('=== DEBUG: Conversation Creation ===');
+    console.log('=== DEBUG: Conversation Creation with Intelligent Context ===');
     console.log('Environment:', process.env.NODE_ENV);
-    console.log('API Key Source:', process.env.TAVUS_API_KEY ? 'Environment Variable' : 'Hardcoded Fallback');
-    console.log('API Key Preview:', config.tavusApiKey ? `${config.tavusApiKey.substring(0, 8)}...` : 'None');
-    console.log('Replica ID:', config.replicaId);
+    console.log('Student:', studentName);
+    console.log('Subject & Topic:', subject, '->', topic);
     console.log('Payload:', payload);
-    console.log('=====================================');
+    console.log('===========================================================');
 
     const response = await tavusApi.post('/conversations', payload);
     console.log('Conversation created successfully:', response.data);

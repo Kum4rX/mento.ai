@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Replica, ConversationResponse } from '@/services/tavusService';
-import { tavusApi } from '@/services/api/tavus';
+import { tavusApi, CreateConversationParams } from '@/services/api/tavus';
 import { useAuth } from './AuthContext';
 
 interface TavusContextType {
@@ -8,7 +8,7 @@ interface TavusContextType {
   loading: boolean;
   error: string | null;
   refreshReplica: () => Promise<void>;
-  createConversation: (personaId?: string) => Promise<ConversationResponse>;
+  createConversation: (params?: CreateConversationParams | string) => Promise<ConversationResponse>;
   clearError: () => void;
   resetState: () => void;
 }
@@ -91,11 +91,11 @@ export const TavusProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [fetchReplica, isAuthenticated, authLoading]);
 
-  const createConversation = useCallback(async (personaId?: string) => {
+  const createConversation = useCallback(async (params?: CreateConversationParams | string) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await tavusApi.createConversation(personaId);
+      const response = await tavusApi.createConversation(params);
       return response;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create conversation';

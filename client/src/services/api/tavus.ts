@@ -1,6 +1,13 @@
 import { api } from '@/utils/api';
 import { Replica, ConversationResponse, ApiError } from '@/services/tavusService';
 
+export interface CreateConversationParams {
+  personaId?: string;
+  subject?: string;
+  topic?: string;
+  customGoal?: string;
+}
+
 export const tavusApi = {
   async getReplica(): Promise<Replica> {
     try {
@@ -11,12 +18,21 @@ export const tavusApi = {
     }
   },
 
-  async createConversation(personaId?: string): Promise<ConversationResponse> {
+  async createConversation(params?: CreateConversationParams | string): Promise<ConversationResponse> {
     try {
-      const payload: { persona_id?: string } = {};
+      let payload: Record<string, any> = {};
       
-      if (personaId) {
-        payload.persona_id = personaId;
+      if (typeof params === 'string') {
+        if (params.trim() !== '') {
+          payload.persona_id = params;
+        }
+      } else if (params) {
+        if (params.personaId && params.personaId.trim() !== '') {
+          payload.persona_id = params.personaId;
+        }
+        if (params.subject) payload.subject = params.subject;
+        if (params.topic) payload.topic = params.topic;
+        if (params.customGoal) payload.customGoal = params.customGoal;
       }
       
       const response = await api.post('/tavus/conversation', payload);
