@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const session = require('express-session');
-const MongoStore = require('connect-mongo').MongoStore;
+const connectMongo = require('connect-mongo');
+const MongoStore = connectMongo.MongoStore || connectMongo;
 const config = require('./config');
 const connectDB = require('./src/config/db');
 const authRoutes = require('./src/routes/authRoutes');
@@ -19,7 +20,7 @@ app.set('trust proxy', 1);
 connectDB();
 
 // Production flag
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 // CORS configuration supporting local development, Render, and Vercel frontends
 const allowedOrigins = [
@@ -37,22 +38,20 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     // In production, allow all vercel preview & production deployments
-    if (isProduction) {
-      if (
-        origin.endsWith('.vercel.app') ||
-        origin.endsWith('.onrender.com') ||
-        allowedOrigins.includes(origin)
-      ) {
-        return callback(null, true);
-      }
+    if (
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.onrender.com') ||
+      allowedOrigins.includes(origin)
+    ) {
       return callback(null, true);
     }
     
     return callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
 app.use(express.json());
@@ -61,20 +60,33 @@ app.use(express.json());
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mento_ai';
 
 app.use(session({
+  name: 'connect.sid',
   secret: process.env.SESSION_SECRET || 'mento_ai_session_secret_default_key',
   resave: false,
   saveUninitialized: false,
+  proxy: true, // Explicitly tell express-session to trust the reverse proxy
   store: MongoStore.create({
     mongoUrl: mongoUri,
-    ttl: 24 * 60 * 60 // 1 day
+    ttl: 24 * 60 * 60 * 7, // 7 days
+    autoRemove: 'native'
   }),
   cookie: {
     secure: isProduction,
     sameSite: isProduction ? 'none' : 'lax',
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 // 1 day
+    maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
   }
 }));
+
+// Safe diagnostic middleware for auth & session verification
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/auth') || req.path.startsWith('/api/sessions')) {
+    const hasCookie = !!req.headers.cookie;
+    const cookieNames = req.headers.cookie ? req.headers.cookie.split(';').map(c => c.split('=')[0].trim()) : [];
+    console.log(`[AUTH-DEBUG] ${req.method} ${req.path} | Origin: ${req.headers.origin || 'none'} | Cookie: ${hasCookie} (${cookieNames.join(', ')}) | SessionID: ${req.sessionID ? 'yes' : 'no'} | User: ${req.session?.userId ? 'authenticated' : 'guest'}`);
+  }
+  next();
+});
 
 // Mount Routes
 app.use('/api/auth', authRoutes);

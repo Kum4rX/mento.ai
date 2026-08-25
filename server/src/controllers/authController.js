@@ -26,15 +26,23 @@ exports.register = async (req, res) => {
     });
 
     // Create session
-    req.session.userId = user._id;
+    req.session.userId = user._id.toString();
 
-    res.status(201).json({
-      success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email
+    // Explicitly persist session to MongoStore before sending response
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error during registration:', err);
+        return res.status(500).json({ success: false, message: 'Failed to establish user session' });
       }
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email
+        }
+      });
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -68,15 +76,23 @@ exports.login = async (req, res) => {
     }
 
     // Create session
-    req.session.userId = user._id;
+    req.session.userId = user._id.toString();
 
-    res.status(200).json({
-      success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email
+    // Explicitly persist session to MongoStore before sending response
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error during login:', err);
+        return res.status(500).json({ success: false, message: 'Failed to establish user session' });
       }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email
+        }
+      });
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -113,12 +129,20 @@ exports.getMe = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 exports.logout = (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
   req.session.destroy((err) => {
     if (err) {
       console.error('Logout error:', err);
       return res.status(500).json({ success: false, message: 'Could not log out' });
     }
-    res.clearCookie('connect.sid'); // default session cookie name
+
+    res.clearCookie('connect.sid', {
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      httpOnly: true
+    });
+
     res.status(200).json({ success: true, message: 'Logged out successfully' });
   });
 };
