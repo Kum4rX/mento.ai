@@ -12,52 +12,65 @@ const { requireAuth: authenticate } = require('./src/middlewares/authMiddleware'
 
 const app = express();
 
+// Trust reverse proxy for Render / Cloud load balancers (ensures secure cookies over HTTPS)
+app.set('trust proxy', 1);
+
 // Connect to database
 connectDB();
 
-// Middleware
-// CORS configuration
+// Production flag
+const isProduction = process.env.NODE_ENV === 'production';
+
+// CORS configuration supporting local development, Render, and Vercel frontends
 const allowedOrigins = [
-  'http://localhost:8080',  // Vite dev server
-  'http://127.0.0.1:8080',  // Alternative localhost
-  'http://192.168.43.252:8080',  // Local network access
-  // Production frontend origins
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://mento-ai.vercel.app',
   'https://mento-ai.onrender.com'
-  // Your custom domain(s) can be added here
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, etc.)
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
     
-    // In production, allow all origins for Render deployment
-    if (process.env.NODE_ENV === 'production') {
+    // In production, allow all vercel preview & production deployments
+    if (isProduction) {
+      if (
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.onrender.com') ||
+        allowedOrigins.includes(origin)
+      ) {
+        return callback(null, true);
+      }
       return callback(null, true);
     }
     
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-      return callback(new Error(msg), false);
-    }
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
 
-// Session configuration
+// Session configuration with cross-site cookie support for Vercel <-> Render
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mento_ai';
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'a_secure_session_secret_12345',
+  secret: process.env.SESSION_SECRET || 'mento_ai_session_secret_default_key',
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI
+    mongoUrl: mongoUri,
+    ttl: 24 * 60 * 60 // 1 day
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     httpOnly: true,
     maxAge: 1000 * 60 * 60 * 24 // 1 day
   }
