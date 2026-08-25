@@ -17,18 +17,19 @@ import {
   Volume2, 
   Languages, 
   Moon, 
-  Sun,
-  Shield,
-  Smartphone,
-  Mail,
-  Globe,
-  HelpCircle,
-  LogOut,
-  ChevronRight,
-  Check,
+  Sun, 
+  Shield, 
+  Smartphone, 
+  Mail, 
+  Globe, 
+  HelpCircle, 
+  LogOut, 
+  ChevronRight, 
+  Check, 
   Download, 
-  Trash2
+  Trash2 
 } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
 
 type SettingsTab = 'profile' | 'account' | 'notifications' | 'appearance' | 'privacy' | 'help';
 
@@ -65,6 +66,7 @@ type SettingsState = {
 };
 
 export default function Settings() {
+  const { theme: appTheme, setTheme: setAppTheme } = useTheme();
   const [settings, setSettings] = useState<SettingsState>({
     activeTab: 'profile',
     profile: {
@@ -83,7 +85,7 @@ export default function Settings() {
       volume: 75
     },
     appearance: {
-      theme: 'system',
+      theme: appTheme,
       language: 'en-US',
       fontSize: 16
     },
@@ -506,16 +508,19 @@ export default function Settings() {
                         ].map((theme) => (
                           <button
                             key={theme.value}
-                            onClick={() => handleSettingChange('appearance', 'theme', theme.value)}
+                            onClick={() => {
+                              handleSettingChange('appearance', 'theme', theme.value);
+                              setAppTheme(theme.value as any);
+                            }}
                             className={`flex flex-col items-center justify-center p-4 rounded-lg border transition-colors ${
-                              settings.appearance.theme === theme.value
+                              appTheme === theme.value
                                 ? 'border-mentor-primary bg-mentor-primary/5'
                                 : 'border-muted-foreground/20 hover:bg-muted/50'
                             }`}
                           >
                             <span className="mb-2">{theme.icon}</span>
                             <span className="text-sm">{theme.label}</span>
-                            {settings.appearance.theme === theme.value && (
+                            {appTheme === theme.value && (
                               <div className="mt-2 text-mentor-primary">
                                 <Check className="h-4 w-4" />
                               </div>

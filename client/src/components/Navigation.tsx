@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { 
   Home, 
-  Video, 
   BarChart3, 
   Settings,
   Menu,
@@ -12,8 +11,7 @@ import {
   ArrowRight,
   BookOpen,
   GraduationCap,
-  LogOut,
-  User as UserIcon
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -30,29 +28,20 @@ export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const isActive = (path: string) => location.pathname === path;
 
-  // Handle navigation with error clearing
+  // Handle navigation smoothly
   const handleNavigation = (path: string) => {
     try {
-      // Clear any existing errors when navigating
       if (typeof window !== 'undefined' && window.location.pathname !== path) {
-        // Small delay to ensure smooth navigation
-        setTimeout(() => {
-          navigate(path);
-        }, 100);
-      } else {
         navigate(path);
       }
     } catch (error) {
       console.error('Navigation error:', error);
-      // Fallback to direct navigation
       window.location.href = path;
     }
   };
-
-  // No redirect needed; '/session' is the correct route
 
   // Handle scroll effect
   useEffect(() => {
@@ -64,37 +53,43 @@ export default function Navigation() {
   }, []);
 
   return (
-    <div className="fixed top-4 left-0 right-0 z-50">
-      <nav className={`max-w-4xl mx-auto px-6 py-3 rounded-2xl transition-all duration-300 mx-4 md:mx-auto ${
-        isScrolled
-          ? 'bg-gradient-to-br from-mentor-primary to-mentor-secondary/90 shadow-lg'
-          : 'bg-gradient-to-br from-mentor-primary to-mentor-secondary'
-      }`}>
-        <div className="flex justify-between items-center">
+    <header className="fixed top-4 left-0 right-0 z-50 px-4 sm:px-6">
+      <nav 
+        className={`max-w-5xl mx-auto px-4 sm:px-6 py-2 rounded-full transition-all duration-300 shadow-md ${
+          isScrolled
+            ? 'bg-gradient-to-r from-mentor-primary/95 to-mentor-secondary/95 backdrop-blur-md shadow-lg shadow-mentor-primary/20'
+            : 'bg-gradient-to-r from-mentor-primary to-mentor-secondary'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
-          <Link to="/" className="flex-shrink-0">
+          <Link to="/" className="flex items-center flex-shrink-0 pl-1">
             <img 
               src="/mento.png" 
-              alt="mento.ai Logo" 
-              className="h-8 w-auto"
+              alt="mento.ai" 
+              className="h-7 sm:h-8 w-auto object-contain hover:opacity-90 transition-opacity"
             />
           </Link>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-1 rounded-full px-2 py-1 relative">
-            {/* Animated glass rectangle for active nav item only */}
-            {navItems.map((item, idx) => {
+          {/* Desktop Center Navigation */}
+          <div className="hidden md:flex items-center space-x-1 bg-white/10 backdrop-blur-sm rounded-full p-1 border border-white/10">
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
               return (
-                <div key={item.name} className="relative flex items-center" style={{ minWidth: 120, justifyContent: 'center' }}>
+                <button
+                  key={item.name}
+                  onClick={() => handleNavigation(item.href)}
+                  className={`relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs lg:text-sm font-medium transition-all duration-200 ${
+                    active
+                      ? 'text-white font-semibold'
+                      : 'text-white/80 hover:text-white hover:bg-white/15'
+                  }`}
+                >
                   {active && (
                     <motion.div
-                      className="absolute inset-0 rounded-full glass-strong -z-10"
-                      layoutId="activeNavGlassBar"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
+                      layoutId="activeNavIndicator"
+                      className="absolute inset-0 bg-white/25 rounded-full -z-10 shadow-sm"
                       transition={{
                         type: "spring",
                         stiffness: 400,
@@ -102,52 +97,48 @@ export default function Navigation() {
                       }}
                     />
                   )}
-                  <button
-                    onClick={() => handleNavigation(item.href)}
-                    className={
-                      `flex items-center gap-2 px-6 py-2 rounded-full text-sm font-medium transition-colors duration-200 z-10 text-white/90 hover:bg-white/20 hover:text-white relative`
-                    }
-                    style={{ minWidth: 120, justifyContent: 'center' }}
-                  >
-                    <Icon size={18} />
-                    <span>{item.name}</span>
-                  </button>
-                </div>
+                  <Icon size={16} className="flex-shrink-0" />
+                  <span>{item.name}</span>
+                </button>
               );
             })}
           </div>
 
-          {/* User Auth Section */}
-          <div className="hidden md:flex items-center space-x-2">
+          {/* Desktop Right Auth Section */}
+          <div className="hidden md:flex items-center gap-2 flex-shrink-0 pr-1">
             {isAuthenticated ? (
               <>
                 <Button 
-                  className="bg-white text-foreground hover:bg-gray-100 rounded-full px-4 py-2 text-sm font-medium flex items-center"
+                  size="sm"
+                  className="bg-white text-gray-900 hover:bg-white/90 hover:shadow-md rounded-full px-4 py-1.5 text-xs lg:text-sm font-semibold shadow-sm transition-all h-8 flex items-center gap-1.5"
                   onClick={() => handleNavigation('/session')}
                 >
-                  Start
-                  <ArrowRight className="ml-2 h-4 w-4" />
+                  <span>Start</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
                 <Button 
                   variant="ghost" 
-                  className="text-white hover:bg-white/20 rounded-full px-4"
+                  size="sm"
+                  className="text-white hover:bg-white/20 rounded-full px-3.5 py-1.5 text-xs lg:text-sm font-medium transition-all h-8 flex items-center gap-1.5"
                   onClick={logout}
                 >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Logout
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Logout</span>
                 </Button>
               </>
             ) : (
               <>
                 <Button 
                   variant="ghost" 
-                  className="text-white hover:bg-white/20 rounded-full px-4"
+                  size="sm"
+                  className="text-white hover:bg-white/20 rounded-full px-3.5 py-1.5 text-xs lg:text-sm font-medium transition-all h-8"
                   onClick={() => handleNavigation('/login')}
                 >
                   Log in
                 </Button>
                 <Button 
-                  className="bg-white text-foreground hover:bg-gray-100 rounded-full px-4"
+                  size="sm"
+                  className="bg-white text-gray-900 hover:bg-white/90 hover:shadow-md rounded-full px-4 py-1.5 text-xs lg:text-sm font-semibold shadow-sm transition-all h-8"
                   onClick={() => handleNavigation('/signup')}
                 >
                   Sign up
@@ -156,87 +147,78 @@ export default function Navigation() {
             )}
           </div>
 
-          {/* Mobile menu button */}
+          {/* Mobile Menu Toggle Button */}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden p-2 rounded-md text-white/90 hover:text-white focus:outline-none"
+            className="md:hidden p-1.5 rounded-full text-white hover:bg-white/20 focus:outline-none transition-colors"
+            aria-label="Toggle Navigation Menu"
           >
-            {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
 
-        {/* Mobile menu */}
+        {/* Mobile Dropdown Menu */}
         <AnimatePresence>
           {isOpen && (
             <motion.div 
-              className="md:hidden mt-4 bg-gradient-to-br from-mentor-primary to-mentor-secondary/90 rounded-2xl p-4 space-y-2"
+              className="md:hidden mt-3 pt-3 border-t border-white/20 space-y-1"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2 }}
             >
-              {navItems.map((item) => (
-                <button
-                  key={item.name}
-                  onClick={() => {
-                    handleNavigation(item.href);
-                    setIsOpen(false);
-                  }}
-              className={`block w-full text-left px-4 py-3 rounded-lg text-white/90 hover:bg-white/15 relative overflow-hidden ${
-                    isActive(item.href) ? 'glass-strong' : ''
-                  }`}
-                  style={{transition: 'background 0.3s'}}
-                >
-                  <AnimatePresence>
-                    {isActive(item.href) && (
-                      <motion.div 
-                        className="absolute inset-0 glass-strong rounded-lg -z-10"
-                        layoutId="activeNavGlassMobile"
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 400,
-                          damping: 30
-                        }}
-                      />
-                    )}
-                  </AnimatePresence>
-                  {item.name}
-                </button>
-              ))}
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActive(item.href);
+                return (
+                  <button
+                    key={item.name}
+                    onClick={() => {
+                      handleNavigation(item.href);
+                      setIsOpen(false);
+                    }}
+                    className={`flex items-center gap-3 w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                      active 
+                        ? 'bg-white/25 text-white font-semibold' 
+                        : 'text-white/80 hover:text-white hover:bg-white/15'
+                    }`}
+                  >
+                    <Icon size={18} />
+                    <span>{item.name}</span>
+                  </button>
+                );
+              })}
               
-              <div className="pt-4 mt-2 border-t border-white/20">
+              <div className="pt-3 mt-2 border-t border-white/15 flex flex-col gap-2">
                 {isAuthenticated ? (
                   <>
                     <Button 
-                      className="w-full mb-2 bg-white text-foreground hover:bg-gray-100 rounded-lg py-3 font-medium flex items-center justify-center"
+                      className="w-full bg-white text-gray-900 hover:bg-white/90 rounded-xl py-2 font-semibold flex items-center justify-center gap-2"
                       onClick={() => {
                         handleNavigation('/session');
                         setIsOpen(false);
                       }}
                     >
-                      Start Learning
-                      <ArrowRight className="ml-2 h-4 w-4" />
+                      <span>Start Learning</span>
+                      <ArrowRight className="h-4 w-4" />
                     </Button>
                     <Button 
                       variant="ghost"
-                      className="w-full text-white hover:bg-white/10 rounded-lg py-3 flex items-center justify-center"
+                      className="w-full text-white hover:bg-white/15 rounded-xl py-2 flex items-center justify-center gap-2"
                       onClick={() => {
                         logout();
                         setIsOpen(false);
                       }}
                     >
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Logout
+                      <LogOut className="h-4 w-4" />
+                      <span>Logout</span>
                     </Button>
                   </>
                 ) : (
-                  <div className="flex flex-col space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Button 
-                      variant="outline"
-                      className="w-full border-white/20 text-foreground bg-white/10 hover:bg-white/20 rounded-lg py-3 flex items-center justify-center"
+                      variant="ghost"
+                      className="w-full text-white hover:bg-white/15 rounded-xl py-2 font-medium"
                       onClick={() => {
                         handleNavigation('/login');
                         setIsOpen(false);
@@ -245,7 +227,7 @@ export default function Navigation() {
                       Log in
                     </Button>
                     <Button 
-                      className="w-full bg-white text-foreground hover:bg-gray-100 rounded-lg py-3 flex items-center justify-center"
+                      className="w-full bg-white text-gray-900 hover:bg-white/90 rounded-xl py-2 font-semibold"
                       onClick={() => {
                         handleNavigation('/signup');
                         setIsOpen(false);
@@ -260,6 +242,6 @@ export default function Navigation() {
           )}
         </AnimatePresence>
       </nav>
-    </div>
+    </header>
   );
 }

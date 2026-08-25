@@ -132,6 +132,60 @@ All colors MUST be HSL.
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 221 83% 53%;
   }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+
+    --card: 224 71% 7%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 224 71% 7%;
+    --popover-foreground: 213 31% 91%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 224 71% 4%;
+
+    --secondary: 188 86% 53%;
+    --secondary-foreground: 224 71% 4%;
+
+    --muted: 223 47% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 48 95% 53%;
+    --accent-foreground: 224 71% 4%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 221 83% 53%;
+
+    /* mento.ai Dark Mode Tokens */
+    --mentor-primary: 221 83% 55%;
+    --mentor-primary-glow: 221 100% 70%;
+    --mentor-secondary: 188 86% 53%;
+    --mentor-secondary-glow: 188 86% 75%;
+    --mentor-neutral: 223 47% 14%;
+    --mentor-surface: 224 71% 4%;
+    --mentor-glass: 224 71% 10%;
+
+    --gradient-hero: linear-gradient(135deg, hsl(221 83% 45%) 0%, hsl(188 86% 40%) 100%);
+    --gradient-card: linear-gradient(135deg, hsl(var(--mentor-glass) / 0.6) 0%, hsl(var(--mentor-glass) / 0.3) 100%);
+    --shadow-glow: 0 0 40px hsl(221 100% 65% / 0.25);
+    --shadow-card: 0 8px 32px hsl(0 0% 0% / 0.5);
+    --shadow-avatar: 0 0 60px hsl(221 100% 65% / 0.35);
+
+    --sidebar-background: 224 71% 6%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 224 71% 4%;
+    --sidebar-accent: 223 47% 14%;
+    --sidebar-accent-foreground: 213 31% 91%;
+    --sidebar-border: 216 34% 17%;
+    --sidebar-ring: 221 83% 53%;
+  }
 }
 
 @layer base {
