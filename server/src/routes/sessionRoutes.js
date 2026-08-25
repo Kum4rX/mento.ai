@@ -5,7 +5,8 @@ const {
   startSession,
   endSession,
   getSessionHistory,
-  getSessionStats
+  getSessionStats,
+  getCurriculumProgress
 } = require('../controllers/sessionController');
 
 // All session routes require authentication
@@ -15,5 +16,6 @@ router.post('/start', startSession);
 router.post('/:id/end', endSession);
 router.get('/history', getSessionHistory);
 router.get('/stats', getSessionStats);
+router.get('/curriculum', getCurriculumProgress);
 
 module.exports = router;

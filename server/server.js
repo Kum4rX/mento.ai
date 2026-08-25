@@ -9,6 +9,7 @@ const connectDB = require('./src/config/db');
 const authRoutes = require('./src/routes/authRoutes');
 const sessionRoutes = require('./src/routes/sessionRoutes');
 const User = require('./src/models/User');
+const SessionHistory = require('./src/models/SessionHistory');
 const { requireAuth: authenticate } = require('./src/middlewares/authMiddleware');
 
 const app = express();
@@ -223,24 +224,74 @@ app.post('/api/tavus/conversation', authenticate, async (req, res) => {
     const { personaId, subject, topic, customGoal } = req.body;
     const payload = { replica_id: config.replicaId };
     
-    // Fetch authenticated student's name
+    // Fetch authenticated student's name and completed learning history
     let studentName = 'Student';
+    let pastSessions = [];
     if (req.session.userId) {
       try {
-        const user = await User.findById(req.session.userId);
+        const [user, sessions] = await Promise.all([
+          User.findById(req.session.userId),
+          SessionHistory.find({ user: req.session.userId, status: 'completed' }).sort({ endedAt: -1 })
+        ]);
         if (user && user.name) {
           studentName = user.name.split(' ')[0]; // First name
         }
+        if (sessions) {
+          pastSessions = sessions;
+        }
       } catch (err) {
-        console.warn('Could not fetch user name for conversation context:', err.message);
+        console.warn('Could not fetch user profile/history for conversation context:', err.message);
       }
     }
 
-    // Build Intelligent Learning Context
+    // Analyze subject and topic history
+    const subjectSessions = subject 
+      ? pastSessions.filter(s => s.subject && s.subject.toLowerCase() === subject.toLowerCase()) 
+      : [];
+    const topicSessions = topic 
+      ? subjectSessions.filter(s => s.topic && s.topic.toLowerCase() === topic.toLowerCase()) 
+      : [];
+
+    const isReturningTopic = topicSessions.length > 0;
+    const subjectSessionCount = subjectSessions.length;
+    const subjectTotalMinutes = Math.round(subjectSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0) / 60);
+    const previousTopicsInSubject = [...new Set(subjectSessions.map(s => s.topic))];
+
+    // Build Student Learning Profile
+    let studentProfile = `${studentName} is `;
+    if (subjectSessionCount === 0) {
+      studentProfile += `a new student starting their first ever session in ${subject || 'general learning'}.`;
+    } else if (isReturningTopic) {
+      studentProfile += `a returning student continuing their study of "${topic}" (${topicSessions.length} prior completed session${topicSessions.length > 1 ? 's' : ''}, ${subjectTotalMinutes} minutes total in ${subject}).`;
+    } else {
+      studentProfile += `a continuing student in ${subject} who has previously studied: [${previousTopicsInSubject.slice(0, 4).join(', ')}] (${subjectSessionCount} prior session${subjectSessionCount > 1 ? 's' : ''}, ${subjectTotalMinutes} mins total). Today is their first session on "${topic}".`;
+    }
+
+    // Build Adaptive Pedagogical Strategy
+    let pedagogicalStrategy = '';
+    if (isReturningTopic) {
+      pedagogicalStrategy = `Since ${studentName} has studied "${topic}" before, build directly upon their previous knowledge. Focus on deeper nuances, problem-solving, resolving any lingering doubts or misconceptions, and applying the concept in new contexts.`;
+    } else if (subjectSessionCount > 0) {
+      pedagogicalStrategy = `Bridge "${topic}" with the foundational concepts they previously learned in ${previousTopicsInSubject.slice(0, 2).join(' and ')}. Guide them step-by-step through the new principles.`;
+    } else {
+      pedagogicalStrategy = `Introduce "${topic}" from core foundational principles using intuitive real-world analogies, step-by-step clarity, and gentle check-in questions to ensure solid grounding.`;
+    }
+
+    // Build Personalized Context & Natural Greeting
     if (subject && topic) {
       payload.conversation_name = `${subject} - ${topic} (${studentName})`;
-      payload.conversational_context = `You are mento.ai, an expert, encouraging, and highly interactive AI personal tutor teaching ${studentName}. The student is studying the subject "${subject}" with a dedicated focus on the topic "${topic}". Explain fundamental concepts clearly using intuitive real-world analogies, verify understanding with brief check questions, and guide the student step-by-step through any doubts they raise.${customGoal ? ` The student specifically wants to focus on: "${customGoal}".` : ''}`;
-      payload.custom_greeting = `Hello ${studentName}! Welcome to your mento.ai session on ${subject}. Today we are exploring ${topic}. What questions or concepts would you like to start with?`;
+      payload.conversational_context = `You are mento.ai, an expert, encouraging, and highly adaptive AI personal tutor.
+Learning Profile: ${studentProfile}
+Current Focus: Subject "${subject}", Topic "${topic}".
+Pedagogical Strategy: ${pedagogicalStrategy}${customGoal ? ` Specific doubt/goal: "${customGoal}".` : ''}`;
+
+      if (isReturningTopic) {
+        payload.custom_greeting = `Welcome back, ${studentName}! Great to continue our ${subject} session on ${topic}. Since we've worked on this before, what specific questions or deeper concepts would you like to focus on today?`;
+      } else if (subjectSessionCount > 0) {
+        payload.custom_greeting = `Welcome back, ${studentName}! It's great to see your momentum in ${subject}. Today we're diving into ${topic}. Where would you like us to start?`;
+      } else {
+        payload.custom_greeting = `Hello ${studentName}! Welcome to your mento.ai session on ${subject}. Today we are exploring ${topic}. What questions or concepts would you like to start with?`;
+      }
     } else {
       payload.conversation_name = `Learning Session - ${studentName}`;
       payload.conversational_context = `You are mento.ai, an expert, patient, and encouraging personal tutor for ${studentName}. Guide the student through their learning goals and clarify any academic questions with step-by-step clarity.`;
@@ -254,12 +305,13 @@ app.post('/api/tavus/conversation', authenticate, async (req, res) => {
       payload.persona_id = config.defaultPersonaId;
     }
 
-    console.log('=== DEBUG: Conversation Creation with Intelligent Context ===');
+    console.log('=== DEBUG: Conversation Creation with Personalized Context ===');
     console.log('Environment:', process.env.NODE_ENV);
     console.log('Student:', studentName);
     console.log('Subject & Topic:', subject, '->', topic);
+    console.log('Is Returning Topic:', isReturningTopic);
     console.log('Payload:', payload);
-    console.log('===========================================================');
+    console.log('=============================================================');
 
     const response = await tavusApi.post('/conversations', payload);
     console.log('Conversation created successfully:', response.data);

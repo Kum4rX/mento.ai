@@ -1,5 +1,79 @@
 const SessionHistory = require('../models/SessionHistory');
 
+// Master Academic Curriculum Catalog (Source of Truth for mento.ai)
+const CURRICULUM_CATALOG = [
+  {
+    subject: "Physics",
+    description: "Mechanics, Thermodynamics, Electromagnetism, Quantum Concepts",
+    color: "from-blue-600 to-cyan-500",
+    topics: [
+      "Laws of Motion",
+      "Thermodynamics",
+      "Electromagnetism",
+      "Optics & Light",
+      "Work, Energy & Power"
+    ]
+  },
+  {
+    subject: "Mathematics",
+    description: "Calculus, Linear Algebra, Geometry, Statistics & Probability",
+    color: "from-indigo-600 to-purple-500",
+    topics: [
+      "Calculus & Derivatives",
+      "Integration & Areas",
+      "Linear Algebra",
+      "Quadratic Equations",
+      "Probability & Statistics"
+    ]
+  },
+  {
+    subject: "Chemistry",
+    description: "Organic Reactions, Atomic Structure, Chemical Bonding, Equilibrium",
+    color: "from-emerald-600 to-teal-400",
+    topics: [
+      "Chemical Bonding",
+      "Periodic Table & Trends",
+      "Organic Reaction Mechanisms",
+      "Acids, Bases & pH",
+      "Stoichiometry & Moles"
+    ]
+  },
+  {
+    subject: "Computer Science",
+    description: "Data Structures, Algorithms, AI Concepts, Web Development",
+    color: "from-cyan-600 to-blue-500",
+    topics: [
+      "Data Structures",
+      "Algorithms & Big-O",
+      "Machine Learning Basics",
+      "React & Modern Web",
+      "Databases & SQL"
+    ]
+  },
+  {
+    subject: "Biology",
+    description: "Cellular Biology, Genetics, Human Physiology, Ecology",
+    color: "from-amber-600 to-orange-500",
+    topics: [
+      "Cell Structure & Function",
+      "Genetics & DNA Replication",
+      "Photosynthesis",
+      "Human Nervous System"
+    ]
+  },
+  {
+    subject: "History & Social Sciences",
+    description: "World Civilizations, Modern History, Economics & Governance",
+    color: "from-rose-600 to-pink-500",
+    topics: [
+      "World War II & Global Impact",
+      "The Industrial Revolution",
+      "Ancient Civilizations",
+      "Microeconomics Principles"
+    ]
+  }
+];
+
 // @desc    Start a new learning session
 // @route   POST /api/sessions/start
 // @access  Private
@@ -16,9 +90,9 @@ exports.startSession = async (req, res) => {
 
     const session = await SessionHistory.create({
       user: req.session.userId,
-      subject,
-      topic,
-      customGoal: customGoal || '',
+      subject: subject.trim(),
+      topic: topic.trim(),
+      customGoal: customGoal ? customGoal.trim() : '',
       conversationId: conversationId || null,
       startedAt: new Date(),
       status: 'active'
@@ -120,7 +194,8 @@ exports.getSessionStats = async (req, res) => {
     const allSessions = await SessionHistory.find({ user: userId });
 
     const totalSessions = allSessions.length;
-    const completedSessions = allSessions.filter(s => s.status === 'completed').length;
+    const completedSessions = allSessions.filter(s => s.status === 'completed');
+    const totalCompletedCount = completedSessions.length;
     const totalDurationSeconds = allSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
     const totalDurationMinutes = Math.round(totalDurationSeconds / 60);
 
@@ -135,14 +210,14 @@ exports.getSessionStats = async (req, res) => {
       subjectCounts[s.subject] = (subjectCounts[s.subject] || 0) + 1;
     });
 
-    // Unique topics mastered
-    const uniqueTopics = new Set(allSessions.map(s => s.topic)).size;
+    // Unique topics completed
+    const uniqueTopics = new Set(completedSessions.map(s => s.topic)).size;
 
     res.json({
       success: true,
       data: {
         totalSessions,
-        completedSessions,
+        completedSessions: totalCompletedCount,
         totalDurationMinutes,
         sessionsThisWeek,
         uniqueTopics,
@@ -157,3 +232,75 @@ exports.getSessionStats = async (req, res) => {
     });
   }
 };
+
+// @desc    Get curriculum mastery progress across all academic subjects
+// @route   GET /api/sessions/curriculum
+// @access  Private
+exports.getCurriculumProgress = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const completedSessions = await SessionHistory.find({ user: userId, status: 'completed' });
+
+    let totalCatalogTopics = 0;
+    let totalUniqueCompleted = 0;
+
+    const subjectsProgress = CURRICULUM_CATALOG.map(cat => {
+      const subjectSessions = completedSessions.filter(s => s.subject.toLowerCase() === cat.subject.toLowerCase());
+      const completedTopicsSet = new Set(subjectSessions.map(s => s.topic));
+      const completedTopicsList = Array.from(completedTopicsSet);
+
+      const totalTopics = cat.topics.length;
+      const completedCount = completedTopicsList.length;
+      const progressPercentage = Math.min(100, Math.round((completedCount / totalTopics) * 100));
+
+      const totalDurationSeconds = subjectSessions.reduce((acc, s) => acc + (s.durationSeconds || 0), 0);
+      const totalDurationMinutes = Math.round(totalDurationSeconds / 60);
+
+      // Find next recommended topic
+      const nextTopic = cat.topics.find(t => !completedTopicsSet.has(t)) || cat.topics[0];
+
+      totalCatalogTopics += totalTopics;
+      totalUniqueCompleted += completedCount;
+
+      let masteryLevel = 'Beginner';
+      if (progressPercentage === 100) masteryLevel = 'Mastered';
+      else if (progressPercentage >= 60) masteryLevel = 'Proficient';
+      else if (progressPercentage > 0) masteryLevel = 'In Progress';
+
+      return {
+        subject: cat.subject,
+        description: cat.description,
+        color: cat.color,
+        totalTopics,
+        completedCount,
+        completedTopics: completedTopicsList,
+        allTopics: cat.topics,
+        progressPercentage,
+        totalDurationMinutes,
+        sessionCount: subjectSessions.length,
+        nextTopic,
+        masteryLevel
+      };
+    });
+
+    const overallPercentage = Math.round((totalUniqueCompleted / totalCatalogTopics) * 100);
+
+    res.json({
+      success: true,
+      data: {
+        totalCatalogTopics,
+        totalUniqueCompleted,
+        overallPercentage,
+        subjects: subjectsProgress
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching curriculum progress:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve curriculum progress'
+    });
+  }
+};
+
+exports.CURRICULUM_CATALOG = CURRICULUM_CATALOG;

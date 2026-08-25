@@ -1,173 +1,273 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Camera, Edit2, Save, User } from 'lucide-react';
-import Avatar3D from '@/components/Avatar3D';
+import { Progress } from '@/components/ui/progress';
+import { 
+  User as UserIcon, 
+  Mail, 
+  Clock, 
+  Award, 
+  BookOpen, 
+  GraduationCap, 
+  Sparkles, 
+  CheckCircle2, 
+  Target,
+  ArrowRight
+} from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/utils/api';
+import { useNavigate } from 'react-router-dom';
+
+interface SessionStats {
+  totalSessions: number;
+  completedSessions: number;
+  totalDurationMinutes: number;
+  sessionsThisWeek: number;
+  uniqueTopics: number;
+  subjectCounts: Record<string, number>;
+}
+
+interface SubjectCurriculum {
+  subject: string;
+  description: string;
+  totalTopics: number;
+  completedCount: number;
+  completedTopics: string[];
+  allTopics: string[];
+  progressPercentage: number;
+  totalDurationMinutes: number;
+  sessionCount: number;
+  nextTopic: string;
+  masteryLevel: string;
+}
+
+interface CurriculumData {
+  totalCatalogTopics: number;
+  totalUniqueCompleted: number;
+  overallPercentage: number;
+  subjects: SubjectCurriculum[];
+}
 
 export default function Profile() {
-  const [isEditing, setIsEditing] = useState(false);
-  const [profile, setProfile] = useState({
-    name: 'Alex Johnson',
-    email: 'alex@example.com',
-    bio: 'AI enthusiast and mental wellness advocate. Love exploring new technologies and mindfulness practices.',
-    location: 'San Francisco, CA',
-    joinDate: 'March 2024'
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [stats, setStats] = useState<SessionStats>({
+    totalSessions: 0,
+    completedSessions: 0,
+    totalDurationMinutes: 0,
+    sessionsThisWeek: 0,
+    uniqueTopics: 0,
+    subjectCounts: {}
   });
+  const [curriculum, setCurriculum] = useState<CurriculumData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
-    setIsEditing(false);
-    // Save logic would go here
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      try {
+        setLoading(true);
+        const [statsRes, curriculumRes] = await Promise.all([
+          api.get('/sessions/stats').catch(() => ({ data: { data: null } })),
+          api.get('/sessions/curriculum').catch(() => ({ data: { data: null } }))
+        ]);
+
+        if (statsRes.data?.data) {
+          setStats(statsRes.data.data);
+        }
+        if (curriculumRes.data?.data) {
+          setCurriculum(curriculumRes.data.data);
+        }
+      } catch (err) {
+        console.error('Error fetching profile data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, []);
+
+  const formatHoursAndMinutes = (totalMinutes: number) => {
+    if (!totalMinutes) return '0 min';
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (hours === 0) return `${mins} min`;
+    return `${hours}h ${mins}m`;
+  };
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-mentor-surface via-background to-mentor-surface p-4 sm:p-6 lg:p-8">
+      <div className="max-w-5xl mx-auto space-y-8">
+        {/* Header Banner */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="max-w-4xl mx-auto"
+          className="flex flex-col sm:flex-row items-center gap-6 p-6 sm:p-8 rounded-3xl glass border border-border/50 shadow-sm"
         >
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2">Profile</h1>
-            <p className="text-muted-foreground">Manage your account information</p>
+          <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-mentor-primary to-mentor-secondary flex items-center justify-center text-white text-2xl font-extrabold shadow-lg shadow-mentor-primary/20">
+            {getInitials(user?.name)}
           </div>
 
-          {/* Profile Card */}
-          <Card className="mb-8">
-            <CardHeader className="text-center">
-              <div className="flex justify-center mb-4">
-                <div className="relative">
-                  <Avatar3D size="lg" className="mx-auto" />
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="absolute bottom-2 right-2 rounded-full"
-                  >
-                    <Camera className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="flex justify-center items-center gap-2 mb-2">
-                <CardTitle className="text-2xl text-foreground">{profile.name}</CardTitle>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setIsEditing(!isEditing)}
-                >
-                  <Edit2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <CardDescription>{profile.email}</CardDescription>
-              <Badge variant="secondary" className="mt-2">
-                Member since {profile.joinDate}
+          <div className="space-y-1.5 text-center sm:text-left flex-1">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{user?.name || 'Student'}</h1>
+              <Badge variant="secondary" className="bg-mentor-primary/10 text-mentor-primary font-semibold text-xs rounded-full px-2.5">
+                Active Learner
               </Badge>
-            </CardHeader>
+            </div>
+            <p className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-1.5">
+              <Mail className="w-4 h-4" />
+              {user?.email || 'student@mento.ai'}
+            </p>
+          </div>
+
+          <Button
+            onClick={() => navigate('/library')}
+            className="rounded-full bg-gradient-to-r from-mentor-primary to-mentor-secondary hover:opacity-95 text-white shadow-md text-xs font-semibold px-5"
+          >
+            <BookOpen className="w-4 h-4 mr-1.5" />
+            Explore Subjects
+          </Button>
+        </motion.div>
+
+        {/* Real Stats Grid */}
+        <motion.div
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <Card className="glass border-border/40 rounded-2xl shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Completed Sessions</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1">{stats.completedSessions || 0}</p>
+                <p className="text-[11px] text-muted-foreground">{stats.totalSessions || 0} initiated</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-mentor-primary/10 text-mentor-primary flex items-center justify-center">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+            </CardContent>
           </Card>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Personal Information */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-foreground">Personal Information</CardTitle>
-                <CardDescription>Update your personal details</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={profile.name}
-                    onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={profile.email}
-                    onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location</Label>
-                  <Input
-                    id="location"
-                    value={profile.location}
-                    onChange={(e) => setProfile({ ...profile, location: e.target.value })}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Bio</Label>
-                  <Textarea
-                    id="bio"
-                    value={profile.bio}
-                    onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
-                    disabled={!isEditing}
-                    rows={4}
-                  />
-                </div>
-                {isEditing && (
-                  <Button onClick={handleSave} className="w-full">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Changes
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+          <Card className="glass border-border/40 rounded-2xl shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Study Time</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1">{formatHoursAndMinutes(stats.totalDurationMinutes)}</p>
+                <p className="text-[11px] text-green-500 font-medium">{stats.sessionsThisWeek} sessions this week</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-mentor-secondary/10 text-mentor-secondary flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Account Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-foreground">Account Statistics</CardTitle>
-                <CardDescription>Your activity overview</CardDescription>
+          <Card className="glass border-border/40 rounded-2xl shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Unique Topics</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1">{stats.uniqueTopics || 0}</p>
+                <p className="text-[11px] text-muted-foreground">across academic catalog</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                <Target className="w-5 h-5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass border-border/40 rounded-2xl shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Curriculum Mastery</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1">{curriculum ? `${curriculum.overallPercentage}%` : '0%'}</p>
+                <p className="text-[11px] text-green-500 font-medium">Verified by AI Tutor</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                <Award className="w-5 h-5" />
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Detailed Curriculum Progress Overview */}
+        {curriculum && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            <Card className="glass border-border/40 rounded-3xl shadow-sm">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-2">
+                  <Award className="w-5 h-5 text-mentor-primary" />
+                  <CardTitle className="text-xl">Subject Mastery Breakdown</CardTitle>
+                </div>
+                <CardDescription>
+                  Detailed breakdown of your unique completed topics per academic discipline
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Sessions Completed</span>
-                    <span className="font-semibold text-foreground">24</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Total Time</span>
-                    <span className="font-semibold text-foreground">12h 30m</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Streak</span>
-                    <span className="font-semibold text-foreground">7 days</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Mood Score</span>
-                    <span className="font-semibold text-foreground">8.2/10</span>
-                  </div>
-                </div>
-                
-                <Separator />
-                
-                <div className="space-y-3">
-                  <h4 className="font-medium text-foreground">Recent Achievements</h4>
-                  <div className="space-y-2">
-                    <Badge variant="secondary">First Session Complete</Badge>
-                    <Badge variant="secondary">Week Streak</Badge>
-                    <Badge variant="secondary">Mindfulness Master</Badge>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {curriculum.subjects.map((sub) => (
+                    <div
+                      key={sub.subject}
+                      className="p-5 rounded-2xl bg-card border border-border/50 shadow-sm space-y-4"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="font-bold text-base text-foreground">{sub.subject}</h4>
+                          <p className="text-xs text-muted-foreground">{sub.totalDurationMinutes} minutes study time • {sub.sessionCount} sessions</p>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {sub.completedCount}/{sub.totalTopics} Topics
+                        </Badge>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Mastery Level</span>
+                          <span className="font-semibold text-foreground">{sub.progressPercentage}% ({sub.masteryLevel})</span>
+                        </div>
+                        <Progress value={sub.progressPercentage} className="h-2 rounded-full" />
+                      </div>
+
+                      {/* Completed Topic Badges */}
+                      <div className="space-y-1.5">
+                        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Completed Topics</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sub.completedTopics.length > 0 ? (
+                            sub.completedTopics.map((topicName) => (
+                              <span
+                                key={topicName}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-green-500/10 text-green-700 dark:text-green-300 text-xs font-medium border border-green-500/20"
+                              >
+                                <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                {topicName}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">No topics completed yet</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
       </div>
     </div>
   );
