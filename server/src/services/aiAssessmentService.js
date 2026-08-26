@@ -3,6 +3,21 @@ const axios = require('axios');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
+// Stop words for heuristic keyword filtering
+const STOP_WORDS = new Set([
+  'about', 'above', 'after', 'again', 'against', 'also', 'although', 'among', 'and',
+  'another', 'any', 'are', 'around', 'because', 'been', 'before', 'being', 'between',
+  'both', 'can', 'could', 'describe', 'did', 'does', 'doing', 'down', 'during', 'each',
+  'explain', 'few', 'for', 'from', 'further', 'had', 'has', 'have', 'having', 'her',
+  'here', 'hers', 'herself', 'him', 'himself', 'his', 'how', 'into', 'its', 'itself',
+  'just', 'more', 'most', 'must', 'name', 'nor', 'not', 'now', 'only', 'other', 'our',
+  'ours', 'ourselves', 'out', 'over', 'own', 'same', 'should', 'some', 'such', 'than',
+  'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these',
+  'they', 'this', 'those', 'through', 'too', 'under', 'until', 'very', 'was', 'were',
+  'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with',
+  'would', 'discuss', 'compare', 'state', 'give', 'example', 'mention', 'identify'
+]);
+
 // Curated academic topic knowledge base for resilient offline/fallback generation
 const ACADEMIC_TOPIC_KNOWLEDGE = {
   "Laws of Motion": {
@@ -357,6 +372,129 @@ function generateFallbackQuestions(subject, topic) {
 }
 
 /**
+ * Normalizes text for comparison (lowercase, removes punctuation, collapses whitespace)
+ */
+function normalizeText(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Deterministic pre-evaluation guard to detect question copy/repetition, trivial, or filler answers
+ */
+function detectInvalidOrEchoAnswer(questionText, studentAnswer, subject, topic) {
+  if (!studentAnswer || typeof studentAnswer !== 'string') {
+    return { isInvalid: true, status: 'unanswered', points: 0, reason: 'Empty answer provided.' };
+  }
+
+  const rawTrimmed = studentAnswer.trim();
+  if (rawTrimmed.length === 0) {
+    return { isInvalid: true, status: 'unanswered', points: 0, reason: 'Empty answer provided.' };
+  }
+
+  if (rawTrimmed.length < 4) {
+    return { 
+      isInvalid: true, 
+      status: 'incorrect', 
+      points: 0, 
+      reason: 'Answer is too short to contain substantive explanation.' 
+    };
+  }
+
+  const normQ = normalizeText(questionText);
+  const normA = normalizeText(studentAnswer);
+  const normSubject = normalizeText(subject);
+  const normTopic = normalizeText(topic);
+
+  // 1. Exact match between student answer and question
+  if (normA === normQ) {
+    return {
+      isInvalid: true,
+      status: 'incorrect',
+      points: 0,
+      reason: 'The submitted answer is an exact copy of the question without providing an explanation.'
+    };
+  }
+
+  // 2. Question contains the entire student answer and student answer is sufficiently long
+  if (normQ.includes(normA) && normA.length >= 12) {
+    return {
+      isInvalid: true,
+      status: 'incorrect',
+      points: 0,
+      reason: 'The submitted answer is a snippet copied directly from the question prompt.'
+    };
+  }
+
+  // 3. Student answer contains the entire question with only minor additions
+  if (normA.includes(normQ)) {
+    const remainingText = normA.replace(normQ, '').trim();
+    if (remainingText.length < 15) {
+      return {
+        isInvalid: true,
+        status: 'incorrect',
+        points: 0,
+        reason: 'The submitted answer copies the question prompt with negligible additional content.'
+      };
+    }
+  }
+
+  // 4. Lexical word overlap check against question (detect echoing)
+  const qWords = normQ.split(/\s+/).filter(w => w.length > 2);
+  const aWords = normA.split(/\s+/).filter(w => w.length > 2);
+
+  if (aWords.length >= 4) {
+    const qWordSet = new Set(qWords);
+    const commonWords = aWords.filter(w => qWordSet.has(w));
+    const uniqueNewWords = aWords.filter(w => !qWordSet.has(w) && !STOP_WORDS.has(w));
+
+    const echoRatio = commonWords.length / aWords.length;
+    // If 65%+ of the student's words are copied from the question AND they offer fewer than 4 new substantive words
+    if (echoRatio >= 0.65 && uniqueNewWords.length < 4) {
+      return {
+        isInvalid: true,
+        status: 'incorrect',
+        points: 0,
+        reason: 'The answer merely echoes or paraphrases the question prompt without providing an actual answer.'
+      };
+    }
+  }
+
+  // 5. Topic/Subject name only check
+  if (normA === normTopic || normA === normSubject || normA === `${normSubject} ${normTopic}` || normA === `${normTopic} in ${normSubject}`) {
+    return {
+      isInvalid: true,
+      status: 'incorrect',
+      points: 0,
+      reason: 'The submitted answer contains only the subject or topic title without an explanation.'
+    };
+  }
+
+  // 6. Generic / Trivial Non-Answers
+  const TRIVIAL_PHRASES = [
+    'i dont know', 'i do not know', 'idk', 'no idea', 'not sure', 'dont know',
+    'yes', 'no', 'none', 'na', 'n a', 'nothing', 'skip', 'as above', 'same',
+    'it is important', 'because it is science', 'because science', 'test', 'hello',
+    'please help', 'answers', 'explanation', 'this is the answer'
+  ];
+
+  if (TRIVIAL_PHRASES.includes(normA)) {
+    return {
+      isInvalid: true,
+      status: 'incorrect',
+      points: 0,
+      reason: 'The submitted answer is generic or non-responsive.'
+    };
+  }
+
+  return { isInvalid: false };
+}
+
+/**
  * Evaluate submitted assessment answers using AI semantic grading and deterministic MCQ matching
  */
 exports.evaluateAssessment = async (subject, topic, questions, studentAnswers) => {
@@ -395,18 +533,27 @@ exports.evaluateAssessment = async (subject, topic, questions, studentAnswers) =
         needsPractice.push(`MCQ Q${i + 1}: Review concepts for "${q.question.substring(0, 40)}..."`);
       }
     } else if (q.type === 'short_answer') {
-      // Semantic AI grading for short answers
-      const gradingResult = await evaluateShortAnswerWithAI(subject, topic, q, studentAnswer);
-      isCorrect = gradingResult.status;
-      questionScore = gradingResult.points;
-      feedback = gradingResult.feedback;
-
-      if (questionScore === 2) {
-        strengths.push(`Conceptual Q${i + 1}: Mastered core reasoning on "${q.question.substring(0, 45)}..."`);
-      } else if (questionScore === 1) {
-        needsPractice.push(`Conceptual Q${i + 1}: Partial understanding of "${q.question.substring(0, 40)}...". ${gradingResult.improvementTip || ''}`);
+      // 1. Run Pre-Evaluation Anti-Echo Guard
+      const guardCheck = detectInvalidOrEchoAnswer(q.question, studentAnswer, subject, topic);
+      if (guardCheck.isInvalid) {
+        isCorrect = guardCheck.status;
+        questionScore = guardCheck.points;
+        feedback = `Incorrect (Score: 0/2). ${guardCheck.reason}`;
+        needsPractice.push(`Conceptual Q${i + 1}: Answer did not provide the required explanation on "${q.question.substring(0, 35)}..."`);
       } else {
-        needsPractice.push(`Conceptual Q${i + 1}: Key misconceptions on "${q.question.substring(0, 40)}...". ${gradingResult.improvementTip || ''}`);
+        // 2. Semantic AI grading for genuine student answers
+        const gradingResult = await evaluateShortAnswerWithAI(subject, topic, q, studentAnswer);
+        isCorrect = gradingResult.status;
+        questionScore = gradingResult.points;
+        feedback = gradingResult.feedback;
+
+        if (questionScore === 2) {
+          strengths.push(`Conceptual Q${i + 1}: Mastered core reasoning on "${q.question.substring(0, 45)}..."`);
+        } else if (questionScore === 1) {
+          needsPractice.push(`Conceptual Q${i + 1}: Partial understanding of "${q.question.substring(0, 40)}...". ${gradingResult.improvementTip || ''}`);
+        } else {
+          needsPractice.push(`Conceptual Q${i + 1}: Key misconceptions on "${q.question.substring(0, 40)}...". ${gradingResult.improvementTip || ''}`);
+        }
       }
     }
 
@@ -456,31 +603,39 @@ exports.evaluateAssessment = async (subject, topic, questions, studentAnswers) =
 async function evaluateShortAnswerWithAI(subject, topic, questionObj, studentAnswer) {
   if (GEMINI_API_KEY && studentAnswer && studentAnswer.length > 5) {
     try {
-      const prompt = `You are an expert academic tutor grading a student's conceptual short answer response.
-Subject: "${subject}", Topic: "${topic}"
+      const prompt = `You are a rigorous, highly objective academic evaluator grading a student's conceptual short-answer response for an intelligent tutoring system.
+Subject: "${subject}"
+Topic: "${topic}"
 Question: "${questionObj.question}"
+Evaluation Rubric / Criteria: "${questionObj.evaluationCriteria || ''}"
 Model Answer: "${questionObj.modelAnswer || questionObj.correctAnswer || ''}"
-Evaluation Criteria: "${questionObj.evaluationCriteria || ''}"
 Student Answer: "${studentAnswer}"
 
-Grade the student answer strictly on accuracy and conceptual clarity:
-- If the student clearly understands and explains the core principles: "status": "correct", "points": 2.
-- If the student demonstrates partial understanding with minor gaps or missing keywords: "status": "partially_correct", "points": 1.
-- If the answer is incorrect, off-topic, or contains major misconceptions: "status": "incorrect", "points": 0.
+CRITICAL EVALUATION & ANTI-CHEATING RULES:
+1. DETECT COPY-PASTE & QUESTION REPETITION:
+   - If the student copied, echoed, or slightly paraphrased the QUESTION text instead of providing an explanation: award "status": "incorrect", "points": 0.
+   - If the student merely states the topic name or writes generic filler ("it is important in real world", "because of science") without substantive facts: award "status": "incorrect", "points": 0.
+   - Never award points simply because words in the student answer overlap with the question prompt.
 
-Return ONLY JSON:
+2. SUBSTANTIVE CONCEPTUAL EVALUATION:
+   - The student MUST directly address what was asked (Explain, Describe, Why, How, Compare, What assumptions, Give an example) by providing actual physical/mathematical/scientific mechanisms.
+   - "correct" (2 points): Directly and accurately explains the core scientific/mathematical mechanism with the key principles specified in the rubric/model answer.
+   - "partially_correct" (1 point): Demonstrates genuine partial understanding with valid reasoning, but has minor gaps, lacks completeness, or misses key justification.
+   - "incorrect" (0 points): Fails to answer the question, repeats the question, contains major misconceptions, is off-topic, or provides generic filler.
+
+Return ONLY valid JSON matching this schema:
 {
   "status": "correct" | "partially_correct" | "incorrect",
   "points": 2 | 1 | 0,
-  "feedback": "Encouraging, constructive 1-2 sentence feedback explaining what was good and what was missing.",
-  "improvementTip": "Brief tip for what concept to review."
+  "feedback": "Concise 1-2 sentence constructive feedback specifying what was correct or what mechanism was missing.",
+  "improvementTip": "Actionable concept review tip."
 }`;
 
       const res = await axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
         {
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0.2 }
+          generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
       );
@@ -493,42 +648,64 @@ Return ONLY JSON:
         }
       }
     } catch (err) {
-      console.warn('Gemini short-answer grading fallback triggered:', err.message);
+      console.warn('[AI-ASSESSMENT] Gemini short-answer grading fallback triggered:', err.message);
     }
   }
 
-  // Heuristic semantic evaluation fallback
-  const studentTokens = studentAnswer.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-  const targetText = `${questionObj.modelAnswer || ''} ${questionObj.evaluationCriteria || ''}`.toLowerCase();
-  const targetTokens = new Set(targetText.split(/\W+/).filter(w => w.length > 3));
+  // Heuristic domain evaluation fallback (ONLY when Gemini API is unreachable)
+  return fallbackHeuristicGrading(questionObj, studentAnswer);
+}
 
-  let matches = 0;
+/**
+ * Strict heuristic grading fallback that checks for substantive domain facts NOT in the question
+ */
+function fallbackHeuristicGrading(questionObj, studentAnswer) {
+  const normQ = normalizeText(questionObj.question);
+  const qWords = new Set(normQ.split(/\s+/));
+
+  // Extract substantive target tokens from model answer & rubric that are NOT in the question
+  const targetText = `${questionObj.modelAnswer || ''} ${questionObj.evaluationCriteria || ''}`;
+  const targetTokens = new Set(
+    normalizeText(targetText)
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !qWords.has(w) && !STOP_WORDS.has(w))
+  );
+
+  // Extract student's substantive words that are NOT in the question
+  const studentTokens = normalizeText(studentAnswer)
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !qWords.has(w) && !STOP_WORDS.has(w));
+
+  let matchedKeywords = 0;
+  const matchedSet = new Set();
   for (const token of studentTokens) {
-    if (targetTokens.has(token)) {
-      matches += 1;
+    if (targetTokens.has(token) && !matchedSet.has(token)) {
+      matchedSet.add(token);
+      matchedKeywords += 1;
     }
   }
 
-  if (matches >= 4 || studentAnswer.length > 80) {
+  // Strict domain-fact threshold without length-based shortcuts
+  if (matchedKeywords >= 3 && studentTokens.length >= 6) {
     return {
       status: 'correct',
       points: 2,
-      feedback: 'Excellent conceptual explanation demonstrating solid grasp of the underlying principles.',
-      improvementTip: 'Continue applying this concept to advanced multi-step problems.'
+      feedback: 'Accurate conceptual explanation incorporating key domain principles.',
+      improvementTip: 'Continue applying these principles to complex multi-step scenarios.'
     };
-  } else if (matches >= 2 || studentAnswer.length > 30) {
+  } else if (matchedKeywords >= 2 && studentTokens.length >= 4) {
     return {
       status: 'partially_correct',
       points: 1,
-      feedback: 'Good attempt, but your answer could be strengthened by incorporating specific technical keywords and governing laws.',
-      improvementTip: 'Review the formal definitions and governing mechanisms.'
+      feedback: 'Demonstrated partial understanding, but your explanation could be strengthened with more detailed mechanisms.',
+      improvementTip: 'Review the complete theoretical derivation and governing constraints.'
     };
   } else {
     return {
       status: 'incorrect',
       points: 0,
-      feedback: 'The response does not sufficiently address the core scientific/mathematical mechanism.',
-      improvementTip: 'Focus on understanding the fundamental definitions and real-world mechanisms.'
+      feedback: 'The response does not provide the required scientific/mathematical explanation.',
+      improvementTip: 'Review the core foundational principles and mechanisms for this topic.'
     };
   }
 }
